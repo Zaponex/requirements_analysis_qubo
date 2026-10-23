@@ -9,6 +9,7 @@ import { renderCompare } from './views/compare.js';
 import { renderOneHot } from './views/onehot.js';
 import { renderSequence } from './views/sequence.js';
 import { renderBaukasten } from './views/baukasten.js';
+import { renderDomainWall } from './views/domainwall.js';
 
 const TABS = {
   daten: [
@@ -22,7 +23,7 @@ const TABS = {
     { key: 'one-hot', label: 'One-Hot', render: renderOneHot },
     { key: 'reihenfolge', label: 'One-Hot + Reihenfolge', render: renderSequence },
     { key: 'baukasten', label: 'Formel-Baukasten', render: renderBaukasten },
-    { key: 'domain-wall', label: 'Domain Wall', soon: true },
+    { key: 'domain-wall', label: 'Domain Wall', render: renderDomainWall },
     { key: 'binary', label: 'Binary', soon: true },
   ],
 };

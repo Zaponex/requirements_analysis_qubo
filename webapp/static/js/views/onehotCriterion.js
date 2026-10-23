@@ -81,7 +81,7 @@ export function createCriterionPanel(host, api) {
         el('div', { class: 'crit-box' },
           el('div', { html: `<b>Ziel:</b> Zuweisung so wählen, dass ${escapeHtml(crit.goal)}.` }),
           el('div', { class: 'crit-formula', html: `${formulaHtml(crit.formula).replace(/^c =/, '<i>c</i><sub>t,r</sub> =')} <span class="hint">[${escapeHtml(crit.unit)}]</span>` }),
-          el('div', { class: 'hint', html: `Diese Zahl steht für jeden Schalter auf der <b>Diagonale</b> der QUBO-Matrix: Q[<i>x</i><sub>t,r</sub>] = <i>c</i><sub>t,r</sub> − A. Die Kopplungen ändern sich durch das Kriterium nicht.
+          el('div', { class: 'hint', html: s.diagonalHint || `Diese Zahl steht für jeden Schalter auf der <b>Diagonale</b> der QUBO-Matrix: Q[<i>x</i><sub>t,r</sub>] = <i>c</i><sub>t,r</sub> − A. Die Kopplungen ändern sich durch das Kriterium nicht.
             Das gilt, weil diese Seite eine <b>Sofortzuweisung</b> rechnet: Jeder Roboter bekommt höchstens einen Auftrag – nur dann ist <i>c</i><sub>t,r</sub> eine feste Zahl.` }),
           crit.sequence_note && seqPage ? el('div', { class: 'warnline', html: `⚠ ${escapeHtml(catalog.sequence_note)}
             <a href="${pageLink(seqPage)}">Summe der Erledigungszeiten mit Reihenfolge →</a>` }) : null,

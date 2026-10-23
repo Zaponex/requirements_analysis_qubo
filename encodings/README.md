@@ -2,7 +2,7 @@
 
 Wie wird aus der Frage „Welcher Roboter übernimmt welchen Auftrag?“ ein Problem, das ein Quantenoptimierer lösen kann? Dieser Ordner erklärt die drei Kodierungen **One-Hot**, **Domain Wall** und **Binary** Schritt für Schritt – an demselben echten Beispiel aus der Simulation, mit Bildern und nachgerechneten Zahlen.
 
-> **Interaktiv:** One-Hot lässt sich im Lernlabor an beliebigen echten Aufträgen selbst ausprobieren: `python -m webapp --open`, dann Reiter **2 · Kodierungen**. Grundlage ist [`formulations.py`](formulations.py). Für das Kapitel-Beispiel liefert sie dieselben Zahlen wie dieses Kapitel, das prüft [`tests/test_one_hot.py`](../tests/test_one_hot.py).
+> **Interaktiv:** One-Hot und Domain Wall lassen sich im Lernlabor an beliebigen echten Aufträgen selbst ausprobieren: `python -m webapp --open`, dann Reiter **2 · Kodierungen**. Grundlage ist [`formulations.py`](formulations.py). Für das Kapitel-Beispiel liefert sie dieselben Zahlen wie dieses Kapitel, das prüft [`tests/test_one_hot.py`](../tests/test_one_hot.py).
 
 ## Lesereihenfolge
 
@@ -40,7 +40,7 @@ Für das laufende Beispiel (2 Aufträge, 4 Roboter, Strafgewichte $A = B = 50$, 
 Kurz gesagt:
 
 - **One-Hot** ist am anschaulichsten, braucht aber die meisten Variablen und die dichtesten Kopplungen.
-- **Domain Wall** spart vor allem Kopplungen (Kette statt Clique) bei fast gleicher Variablenzahl.
+- **Domain Wall** spart vor allem Kopplungen (Kette statt Clique) bei fast gleicher Variablenzahl – solange wenige Aufträge um dieselben Roboter konkurrieren. Jedes konkurrierende Paar kostet $3R - 5$ statt $R$ Kopplungen, bei $R = 4$ kippt der Vorteil ab 4 Aufträgen (siehe Nachtrag im [Domain-Wall-Kapitel](domain_wall/README.md)). Die Kettenstrafe muss doppelt so stark sein wie die Spaltenstrafe.
 - **Binary** spart die meisten Variablen. Dafür entstehen Terme höheren Grades, Hilfsbits und große Koeffizienten, also höhere Präzisionsanforderungen.
 
 Welche Kodierung für welche Hardware passt, ist Thema der späteren Stufen (siehe [docs/ARCHITEKTUR.md](../docs/ARCHITEKTUR.md)).

@@ -25,7 +25,7 @@ gewählten Anfrage und gelten ab diesem Zeitpunkt als verfügbar.
 from __future__ import annotations
 
 import math
-from itertools import combinations
+from itertools import combinations, product
 
 from cost_model import CRITERIA_BY_KEY, SEQUENCE_CRITERIA_BY_KEY, assignment_cost, resolve_params
 
@@ -570,3 +570,204 @@ def aux_estimates(instance: dict, form: dict, ia_form: dict, dt: float = 5.0) ->
          "note": f"{inequalities} Ungleichungen als Strafterme; Produkte x·x·y·C sind kubisch und brauchen zusätzlich "
                  "Quadratisierungs-Hilfsvariablen (nicht mitgezählt)."},
     ]
+
+
+# ---------------------------------------------------------------------------------------------
+# Domain Wall: je Auftrag eine Kette aus R_t − 1 Bits (Thermometer)
+# ---------------------------------------------------------------------------------------------
+#
+# Kette mit festen Rändern [1, b_1, …, b_{R−1}, 0]. Gültig ist nur die Thermometer-Form 1…1 0…0 –
+# die Stelle des Wechsels 1 → 0 (die Wand) ist der Roboter: δ_k = Kette[k] − Kette[k+1] ist 1
+# genau für den k-ten Roboter der Kette (k = 0 … R−1). Eine Domain-Wall-Kette kann weder
+# „niemand“ noch „zwei Roboter“ ausdrücken – nur ungültige Ketten mit mehreren Wänden.
+# Chancellor (2019), Kapitel encodings/domain_wall/README.md.
+
+DW_ORDERS = ("nummer", "kosten")
+
+
+def _lin(const: float = 0.0, terms: dict[int, float] | None = None) -> dict:
+    """Lineare Form const + Σ coef·b_i."""
+    return {"const": const, "terms": dict(terms or {})}
+
+
+def _lin_eval(e: dict, x: list[int]) -> float:
+    return e["const"] + sum(c * x[i] for i, c in e["terms"].items())
+
+
+def domain_wall(instance: dict, order: str = "nummer") -> dict:
+    """Domain-Wall-Formulierung einer Sofortzuweisung (Instanz aus build_instance).
+
+    E(b) = Σ_t Σ_k c_{t,k} δ_{t,k}                    Kosten (Teleskopsumme: Konstante + Differenzen)
+         + A Σ_t Σ_i b_{t,i+1} (1 − b_{t,i})          Kettenregel: keine Wand 0 → 1
+         + B Σ_r Σ_{t<t'} δ_{t,r} δ_{t',r}            Spaltenregel: kein Roboter doppelt
+
+    order = "nummer": Roboter in der Kette nach Nummer; "kosten": billigster zuerst.
+    """
+    if order not in DW_ORDERS:
+        raise ValueError(f"Reihenfolge muss eine von {DW_ORDERS} sein")
+    variables = instance["variables"]
+    chains, bits = [], []
+    for t in instance["tasks"]:
+        tid = t["transport_id"]
+        cand = [v for v in variables if v["task_id"] == tid]
+        cand.sort(key=(lambda v: (v["cost"], v["robot_id"])) if order == "kosten" else (lambda v: v["robot_id"]))
+        idx = []
+        for k in range(1, len(cand)):
+            idx.append(len(bits))
+            bits.append({"index": len(bits), "task_id": tid, "pos": k, "left": cand[k - 1]["robot_id"],
+                         "right": cand[k]["robot_id"]})
+        chains.append({"task_id": tid, "robots": [v["robot_id"] for v in cand], "costs": [v["cost"] for v in cand],
+                       "bits": idx})
+
+    def deltas(ch: dict) -> list[dict]:
+        """δ_k als lineare Form über die Bits der Kette (Ränder fest 1 und 0)."""
+        b = [_lin(1.0)] + [_lin(0.0, {i: 1.0}) for i in ch["bits"]] + [_lin(0.0)]
+        out = []
+        for k in range(len(ch["robots"])):
+            terms = dict(b[k]["terms"])
+            for i, c in b[k + 1]["terms"].items():
+                terms[i] = terms.get(i, 0.0) - c
+            out.append(_lin(b[k]["const"] - b[k + 1]["const"], terms))
+        return out
+
+    rules: list[dict] = []
+    entries: dict[tuple[int, int], dict] = {}
+    const_parts: list[dict] = []
+
+    def add(i: int, j: int, part: dict) -> None:
+        i, j = min(i, j), max(i, j)
+        e = entries.setdefault((i, j), {"i": i, "j": j, "c": 0.0, "A": 0.0, "B": 0.0, "parts": []})
+        for k in ("c", "A", "B"):
+            e[k] += part.get(k, 0.0)
+        e["parts"].append(part)
+
+    for ch in chains:
+        tid = ch["task_id"]
+        if not ch["robots"]:
+            continue  # kein Roboter: der Auftrag ist in Domain Wall gar nicht darstellbar
+        ds = deltas(ch)
+        rules.append({"kind": "kosten", "task_id": tid, "vars": ch["bits"], "robots": ch["robots"], "costs": ch["costs"],
+                      "deltas": ds})
+        # Teleskopsumme: Σ_k c_k δ_k = c_0 + Σ_k (c_k − c_{k−1}) b_k
+        const_parts.append({"kind": "kosten", "c": float(ch["costs"][0]), "task_id": tid, "robot_id": ch["robots"][0]})
+        for k, i in enumerate(ch["bits"], start=1):
+            add(i, i, {"kind": "kosten", "c": round(float(ch["costs"][k] - ch["costs"][k - 1]), 4), "task_id": tid,
+                       "left": ch["robots"][k - 1], "right": ch["robots"][k]})
+        # Kettenregel: b_{i+1}(1 − b_i) = b_{i+1} − b_i b_{i+1}
+        for a, b in zip(ch["bits"], ch["bits"][1:]):
+            rules.append({"kind": "kette", "task_id": tid, "vars": [a, b]})
+            add(b, b, {"kind": "kette", "A": 1.0, "task_id": tid})
+            add(a, b, {"kind": "kette", "A": -1.0, "task_id": tid})
+
+    # Spaltenregel: je Roboter und Auftragspaar δ·δ′ – Produkt zweier linearer Formen
+    by_robot: dict[int, list[tuple[int, dict]]] = {}
+    for ch in chains:
+        for r, d in zip(ch["robots"], deltas(ch) if ch["robots"] else []):
+            by_robot.setdefault(r, []).append((ch["task_id"], d))
+    for r, items in by_robot.items():
+        for (t1, d1), (t2, d2) in combinations(items, 2):
+            rules.append({"kind": "spalte", "robot_id": r, "tasks": [t1, t2], "vars": sorted(set(d1["terms"]) | set(d2["terms"])),
+                          "deltas": [d1, d2]})
+            meta = {"kind": "spalte", "robot_id": r, "tasks": [t1, t2]}
+            c0 = d1["const"] * d2["const"]
+            if c0:
+                const_parts.append({**meta, "B": c0})
+            for i, c in d1["terms"].items():
+                if d2["const"]:
+                    add(i, i, {**meta, "B": c * d2["const"]})
+            for j, c in d2["terms"].items():
+                if d1["const"]:
+                    add(j, j, {**meta, "B": c * d1["const"]})
+            for i, ci in d1["terms"].items():
+                for j, cj in d2["terms"].items():
+                    add(i, j, {**meta, "B": ci * cj})
+
+    const = {"c": 0.0, "A": 0.0, "B": 0.0}
+    for p in const_parts:
+        for k in const:
+            const[k] += p.get(k, 0.0)
+    return {
+        "encoding": "domain_wall",
+        "order": order,
+        "chains": chains,
+        "bits": bits,
+        "rules": rules,
+        "entries": sorted(entries.values(), key=lambda e: (e["i"], e["j"])),
+        "const": const,
+        "const_parts": const_parts,
+        "n": len(bits),
+        "unrepresentable": [ch["task_id"] for ch in chains if not ch["robots"]],
+    }
+
+
+def energy_rules_dw(form: dict, x: list[int], A: float, B: float) -> float:
+    """E(b) direkt aus den Regeln der Domain-Wall-Formulierung – muss mit energy_qubo übereinstimmen."""
+    e = 0.0
+    for r in form["rules"]:
+        if r["kind"] == "kosten":
+            e += sum(c * _lin_eval(d, x) for c, d in zip(r["costs"], r["deltas"]))
+        elif r["kind"] == "kette":
+            a, b = r["vars"]
+            e += A * x[b] * (1 - x[a])
+        else:
+            e += B * _lin_eval(r["deltas"][0], x) * _lin_eval(r["deltas"][1], x)
+    return e
+
+
+def decode_domain_wall(form: dict, x: list[int]) -> dict:
+    """Bits → Roboter je Auftrag. Gültig: jede Kette hat genau eine Wand und kein Roboter fährt doppelt."""
+    tasks, issues = {}, []
+    for ch in form["chains"]:
+        tid = ch["task_id"]
+        if not ch["robots"]:
+            issues.append(f"#{tid}: kein Roboter – nicht darstellbar")
+            continue
+        b = [1] + [x[i] for i in ch["bits"]] + [0]
+        down = [k for k in range(len(b) - 1) if b[k] == 1 and b[k + 1] == 0]
+        up = [k for k in range(len(b) - 1) if b[k] == 0 and b[k + 1] == 1]
+        if up:
+            issues.append(f"#{tid}: {len(down) + len(up)} Wände")
+        else:
+            tasks[tid] = ch["robots"][down[0]]
+    used: dict[int, list[int]] = {}
+    for tid, r in tasks.items():
+        used.setdefault(r, []).append(tid)
+    for r, ts in used.items():
+        if len(ts) > 1:
+            issues.append(f"R{r} fährt {len(ts)} Aufträge")
+    return {"valid": not issues, "issues": issues, "assignment": tasks}
+
+
+def best_assignment(instance: dict) -> dict | None:
+    """Beste gültige Sofortzuweisung (jeder Auftrag genau ein Roboter, kein Roboter doppelt) durch Aufzählen."""
+    task_ids = [t["transport_id"] for t in instance["tasks"]]
+    options = {t: [v for v in instance["variables"] if v["task_id"] == t] for t in task_ids}
+    best, count = None, 0
+    for combo in product(*(options[t] for t in task_ids)):
+        robots = [v["robot_id"] for v in combo]
+        if len(set(robots)) < len(robots):
+            continue
+        count += 1
+        value = round(sum(v["cost"] for v in combo), 4)
+        if best is None or value < best["value"] - 1e-9:
+            best = {"value": value, "assignment": {v["task_id"]: v["robot_id"] for v in combo}}
+    return None if best is None else {**best, "count": count}
+
+
+def dw_default_weights(instance: dict) -> dict:
+    """Strafgewichte für Domain Wall.
+
+    Ein Auftrag kann in Domain Wall nicht liegen bleiben, also zählt nur die Spannweite der Kosten
+    (teuerster minus billigster Roboter eines Auftrags): B > Spannweite macht Doppelbelegung teurer
+    als jedes Ausweichen. A muss B zusätzlich überstimmen, weil an einer falschen Wand δ = −1 wird und
+    die Spaltenregel dann belohnt statt bestraft: A = 2B. (Mit A = B war das Minimum in rund 40 % der
+    geprüften echten Momente unzulässig, mit A = 2B in keinem – siehe tests/test_domain_wall.py.)
+    """
+    spreads = []
+    for t in instance["tasks"]:
+        c = [v["cost"] for v in instance["variables"] if v["task_id"] == t["transport_id"]]
+        if c:
+            spreads.append(max(c) - min(c))
+    spread = max(spreads, default=0.0)
+    B = nice_ceil(max(10.0, 1.5 * spread))
+    return {"A": 2 * B, "B": B, "spread": round(spread, 4)}

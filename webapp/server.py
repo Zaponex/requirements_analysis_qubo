@@ -76,6 +76,21 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
         except ValueError as exc:
             raise HTTPException(400, str(exc))
 
+    @app.get("/api/runs/{run_id}/domain-wall")
+    def get_domain_wall(run_id: str, tasks: str, variables: str = "kandidaten", kriterium: str = "leerfahrt",
+                        params: str = "", reihenfolge: str = "nummer") -> dict:
+        """Domain-Wall-Formulierung für gewählte Aufträge.
+
+        Beispiel: ?tasks=1,2&kriterium=leerfahrt&reihenfolge=nummer|kosten
+        """
+        ids, overrides = _parse(tasks, params)
+        try:
+            return service.domain_wall(run_id, ids, variables, kriterium, overrides, reihenfolge)
+        except KeyError:
+            raise HTTPException(404, f"Lauf {run_id} nicht gefunden")
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
+
     @app.get("/api/runs/{run_id}/reihenfolge")
     def get_sequence(run_id: str, tasks: str, variables: str = "kandidaten", kriterium: str = "erledigungszeit",
                      plaetze: int = 2, params: str = "") -> dict:

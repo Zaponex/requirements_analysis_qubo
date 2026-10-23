@@ -72,7 +72,7 @@ Jede Stufe hat zwei Gesichter, die auf **denselben Python-Funktionen** aufbauen:
 | --- | --- | --- |
 | Zweck | reproduzierbare Ergebnisse, Abbildungen fürs Paper | intuitiv erkunden und verstehen |
 | Stufe 1 | `analysis/analysis.py` → PNG-Bericht | Reiter **1 · Daten** ([webapp/](../webapp/README.md)) |
-| Kodierungen | `encodings/` (Lesekapitel), `encodings/formulations.py`, `encodings/baukasten.py` | Reiter **2 · Kodierungen**: One-Hot ✅, One-Hot + Reihenfolge ✅, Formel-Baukasten ✅, Domain Wall und Binary geplant |
+| Kodierungen | `encodings/` (Lesekapitel), `encodings/formulations.py`, `encodings/baukasten.py` | Reiter **2 · Kodierungen**: One-Hot ✅, One-Hot + Reihenfolge ✅, Formel-Baukasten ✅, Domain Wall ✅, Binary geplant |
 | Hardware | – | Reiter **3 · Hardware** (geplant) |
 
 Die Website rechnet nichts Eigenes am Ursprungsproblem. Ihre Datenschicht (`webapp/data_service.py`) ruft `analysis/` auf, deshalb zeigen Bericht und Website immer dieselben Zahlen. Neue Berechnungen gehören zuerst in die Python-Module; die Website stellt sie dar.

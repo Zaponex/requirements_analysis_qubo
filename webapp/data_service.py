@@ -23,7 +23,8 @@ from checks import run_checks  # noqa: E402
 from features import WINDOW_SIZES, run_summary, task_features, task_robot_matrix  # noqa: E402
 from cost_model import CRITERIA, PARAMS, SEQUENCE_CRITERIA, SEQUENCE_NOTE, STRUCTURAL  # noqa: E402
 from formulations import (  # noqa: E402
-    aux_estimates, build_instance, build_sequence_instance, default_weights, exact_optimum, one_hot, one_hot_sequence,
+    aux_estimates, best_assignment, build_instance, build_sequence_instance, default_weights, domain_wall,
+    dw_default_weights, exact_optimum, one_hot, one_hot_sequence,
 )
 import baukasten  # noqa: E402
 from loader import PATH_SENTINEL_THRESHOLD, find_runs, load_run  # noqa: E402
@@ -111,6 +112,24 @@ class DataService:
             "run_id": run_id,
             "instance": instance,
             "formulation": one_hot(instance),
+            "catalog": {"criteria": CRITERIA, "structural": STRUCTURAL, "params": PARAMS, "sequence_note": SEQUENCE_NOTE},
+        }
+
+    def domain_wall(self, run_id: str, task_ids: list[int], variables: str = "kandidaten", criterion: str = "leerfahrt",
+                    params: dict | None = None, order: str = "nummer") -> dict:
+        """Lern-Instanz (wie One-Hot) + Domain-Wall-Formulierung, beste gültige Zuweisung und
+        der Vergleich mit One-Hot für dieselben Aufträge."""
+        p = self.payload(run_id)
+        instance = build_instance(p["tasks"], p["fleet"], task_ids, variables, criterion, params)
+        form = domain_wall(instance, order)
+        oh = one_hot(instance)
+        return {
+            "run_id": run_id,
+            "instance": instance,
+            "formulation": form,
+            "weights": dw_default_weights(instance),
+            "best": best_assignment(instance),
+            "one_hot": {"n": oh["n"], "couplings": sum(1 for e in oh["entries"] if e["i"] != e["j"])},
             "catalog": {"criteria": CRITERIA, "structural": STRUCTURAL, "params": PARAMS, "sequence_note": SEQUENCE_NOTE},
         }
 

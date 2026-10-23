@@ -40,7 +40,8 @@ Der Server lauscht nur auf `127.0.0.1` und ist damit von außen nicht erreichbar
 | **One-Hot** ✅ | Geführter Weg in 6 Schritten an echten Aufträgen, siehe unten |
 | **One-Hot + Reihenfolge** ✅ | Ein Roboter fährt mehrere Aufträge: Platz-Hilfsvariablen, Ablaufplan, Hardware-Vergleich, siehe unten |
 | **Formel-Baukasten** ✅ | Die Formel aus Bausteinen selbst zusammensetzen – auch falsch – mit Diagnose gegen das echte Problem, siehe unten |
-| Domain Wall, Binary | als „bald“ markiert; Inhalt steht schon in den Lesekapiteln in [`encodings/`](../encodings/README.md) |
+| **Domain Wall** ✅ | Derselbe geführte Weg wie bei One-Hot, mit Ketten statt Schachbrett, siehe unten |
+| Binary | als „bald“ markiert; Inhalt steht schon im Lesekapitel in [`encodings/binary/`](../encodings/binary/README.md) |
 
 Der geführte Weg bei **One-Hot**:
 
@@ -95,6 +96,17 @@ Hier darf ein Roboter bis zu $K$ Aufträge nacheinander fahren. Die Schalter sin
 | Hardware | Qubits, Kopplungen, Dichte, größter Koeffizient; Vergleich mit Sofortzuweisung, Zeitraster und expliziten Fertigstellungszeiten |
 
 Direktlink: `#/kodierungen/reihenfolge?auftraege=1,2,3,4,5&plaetze=2&kriterium=erledigungszeit&schwellen=1`. `schwellen=1` berechnet die Schwellen sofort (bis 16 Schalter).
+
+#### Domain Wall
+
+Gleicher Aufbau wie One-Hot (6 Schritte: Szenario → Ketten → Kosten → Kettenregel → Spaltenregel → QUBO & Hardware), gleiche Szenarien und Kriterien. Was anders ist:
+
+- **Die Ketten:** Je Auftrag eine Reihe aus *R* − 1 Bits zwischen einer festen 1 und einer festen 0. Zwischen zwei Nachbarn steht jeweils ein Roboter mit seinen Kosten und seinem δ. Grün = Wand 1 → 0 (gewählter Roboter), rot = falsche Wand 0 → 1. Die Reihenfolge der Roboter in der Kette ist wählbar (nach Nummer wie im Kapitel, oder billigster zuerst).
+- **Die Formel dahinter:** dieselben vier Register. ③ zeigt die Teleskopsumme der Kosten, die Kettenregel als Nachbarkopplung und die Spaltenregel als Produkt zweier Differenzen. ④ listet alle Stellungen einer Kette mit „Phantasiewerten“ und zeigt den **Gültigkeitsbereich** von A und B – bei Domain Wall auch nach oben begrenzt.
+- **Strafgewichte:** B = 1,5 × größte Spannweite der Kosten, **A = 2·B**. An einer falschen Wand ist δ = −1, dann belohnt die Spaltenregel; mit A = B war das Minimum in rund 40 % der geprüften echten Momente unzulässig ([`tests/test_domain_wall.py`](../tests/test_domain_wall.py)).
+- **Hardware:** Vergleich mit One-Hot für dieselben Aufträge und die Tabelle „Wann lohnt sich Domain Wall?“: Kopplungen T(R − 2) + Paare·(3R − 5) gegenüber T·R(R − 1)/2 + R·Paare. Bei 4 Robotern ist Domain Wall nur bis 3 konkurrierende Aufträge sparsamer.
+
+Direktlink: `#/kodierungen/domain-wall?schritt=5&auftraege=1,2&kriterium=leerfahrt&reihenfolge=kosten&zustand=minimum&formel=wirkung`.
 
 #### Formel-Baukasten
 
@@ -155,6 +167,7 @@ webapp/
 | `GET /api/runs/<run_id>` | Aufträge, Flotten-Snapshots, Entitäten, Roboter, Auftrag×Roboter-Matrix, Befunde, Annahmen |
 | `GET /api/runs/<run_id>/one-hot?tasks=1,2&variables=kandidaten&kriterium=leerfahrt&params={}` | Lern-Instanz mit Kosten nach Kriterium, One-Hot-Formulierung (Regeln und QUBO-Einträge mit symbolischen A, B), Katalog der Kriterien und Parameter |
 | `GET /api/runs/<run_id>/reihenfolge?tasks=1,2,3&plaetze=2&kriterium=erledigungszeit&variables=kandidaten&params={}` | Instanz mit Anfahrten, Formulierung mit Platz-Hilfsvariablen (symbolische A, B, D), Standardgewichte, exaktes Optimum (mit und ohne Platzgrenze, Sofortzuweisung), Hilfsvariablen-Vergleich |
+| `GET /api/runs/<run_id>/domain-wall?tasks=1,2&kriterium=leerfahrt&reihenfolge=nummer&variables=kandidaten&params={}` | Lern-Instanz wie bei One-Hot, Domain-Wall-Formulierung (Ketten, Bits, Regeln, QUBO-Einträge mit symbolischen A, B, Konstante je Termart), Standardgewichte, beste gültige Zuweisung, One-Hot-Vergleich |
 | `POST /api/runs/<run_id>/baukasten` mit `{"tasks": [1, 2], "plaetze": 2, "kriterium": "erledigungszeit", "terms": [...] oder "preset": "reihenfolge"}` | Echtes Problem (Instanz, Anforderungen, exaktes Optimum – zwischengespeichert) und die Formulierung aus den Bausteinen: Regeln und QUBO-Einträge mit Beiträgen je Baustein |
 | `GET /api/docs` | automatische API-Dokumentation |
 

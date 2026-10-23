@@ -27,7 +27,10 @@ export function makeModel(form, { A, B, D = 0, terms }) {
       nbr[e.j].push([e.i, v]);
     }
   }
-  const constant = terms.zeile ? form.const.A * A : 0;
+  // Konstante: aufgeteilt nach Termart (const_parts, z.B. Domain Wall) – sonst nur die Zeilenregel (One-Hot)
+  const constant = form.const_parts
+    ? form.const_parts.filter((p) => terms[p.kind]).reduce((s, p) => s + partValue(p, A, B, D), 0)
+    : (terms.zeile ? form.const.A * A : 0);
   return { n, diag, nbr, entries, constant, A, B, D, terms };
 }
 

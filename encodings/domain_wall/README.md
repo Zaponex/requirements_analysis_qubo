@@ -4,6 +4,8 @@
 
 Dieses Kapitel baut auf dem [One-Hot-Kapitel](../one_hot/README.md) auf und nutzt dasselbe Beispiel. Wer One-Hot noch nicht kennt, liest am besten dort zuerst.
 
+> **Interaktiv:** Lernlabor, Reiter **2 · Kodierungen › Domain Wall** (`python -m webapp --open`) – derselbe Weg an beliebigen echten Aufträgen, mit klickbaren Ketten. Formulierung: [`formulations.domain_wall`](../formulations.py), geprüft in [`tests/test_domain_wall.py`](../../tests/test_domain_wall.py).
+
 1. [Was uns an One-Hot gestört hat](#schritt-1--was-uns-an-one-hot-gestört-hat)
 2. [Eine Reihe aus Einsen und Nullen](#schritt-2--eine-reihe-aus-einsen-und-nullen)
 3. [Alle 8 Stellungen](#schritt-3--alle-8-stellungen)
@@ -180,6 +182,25 @@ Variablen und Kopplungen wachsen nur **linear**. Bei der Zahl der Variablen spar
 Im nächsten Kapitel geht [Binary](../binary/README.md) noch einen Schritt weiter und spart Variablen radikal – mit Folgen an anderer Stelle.
 
 ---
+
+## Nachtrag aus dem Lernlabor: zwei Befunde an echten Daten
+
+**1. Die Kettenregel muss doppelt so stark sein wie die Spaltenregel.** Schritt 7 hat gezeigt, dass an einer falschen Wand δ = −1 wird und die Spaltenregel dann belohnt. An 650 echten Momenten beider Läufe geprüft: Mit A = B ist das Minimum in **247 Fällen (38 %)** unzulässig oder nicht optimal, mit **A = 2B** in keinem. Weil Domain Wall keinen Auftrag liegen lassen kann, reicht es, B an der **Spannweite** der Kosten auszurichten (B ≈ 1,5 × größte Spannweite), nicht an den größten Kosten wie bei One-Hot. Umgekehrt ist der Gültigkeitsbereich von B auch nach oben begrenzt: Wird B größer als A, kippt das Minimum wieder.
+
+**2. Der Kopplungsvorteil hängt von der Konkurrenz ab.** Konkurrieren *T* Aufträge um dieselben *R* Roboter, braucht
+
+- Domain Wall $T(R-2) + \binom{T}{2}(3R-5)$ Kopplungen,
+- One-Hot $T \cdot \frac{R(R-1)}{2} + R\binom{T}{2}$.
+
+Die Kette spart je Auftrag, aber jedes konkurrierende Auftragspaar kostet $3R - 5$ statt $R$ Kopplungen. Domain Wall ist nur sparsamer, solange $T - 1 < \frac{R^2 - 3R + 4}{2R - 5}$:
+
+| Roboter $R$ | Domain Wall sparsamer bis $T$ = |
+| --- | --- |
+| 4 | 3 |
+| 8 | 4 |
+| 16 | 8 |
+
+Wie viele Aufträge wirklich um dieselben Roboter konkurrieren, hängt von der Aufgabenverteilung und den Zuständigkeitsbereichen ab – genau die Größe, die die Datenanalyse (Stufe 1) liefert.
 
 ## Auf einen Blick
 

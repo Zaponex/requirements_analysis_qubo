@@ -422,7 +422,9 @@ export function renderOneHot(root, { run, api, params }) {
           onclick: () => { st.x = fromMask(st.result.min.mask, vars().length); update(); } }, 'Minimum laden')
         : null,
       el('a', { class: 'btn small', href: `#/kodierungen/baukasten?auftraege=${st.selected.join(',')}&plaetze=1&kriterium=${st.criterion}${st.mode === 'alle' ? '&modus=alle' : ''}`,
-        title: 'Dieselben Aufträge im Formel-Baukasten: Regeln verändern, weglassen, falsch machen' }, 'Formel verändern → Baukasten'));
+        title: 'Dieselben Aufträge im Formel-Baukasten: Regeln verändern, weglassen, falsch machen' }, 'Formel verändern → Baukasten'),
+      el('a', { class: 'btn small', href: `#/kodierungen/domain-wall?auftraege=${st.selected.join(',')}&kriterium=${st.criterion}&schritt=${st.step}`,
+        title: 'Dieselben Aufträge mit Domain Wall: R − 1 Bits je Auftrag, Kette statt Clique' }, 'Vergleich: Domain Wall →'));
   }
 
   function renderControls() {
