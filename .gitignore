@@ -1,0 +1,8 @@
+# Python
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+
+# Generierte Analyse-Ergebnisse (reproduzierbar über analysis/analysis.py)
+outputs/
+data/
