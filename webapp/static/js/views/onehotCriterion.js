@@ -35,20 +35,22 @@ export function createCriterionPanel(host, api) {
     const crit = instance.criterion;
     const vars = instance.variables;
 
-    // Auswahl – Struktur-Kriterien mit eigener Seite sind anwählbar und springen dorthin
-    const pageLink = (c) => `#/kodierungen/${c.page}?auftraege=${(s.selected || []).join(',')}`;
+    // Auswahl – Struktur-Kriterien mit eigener Seite sind anwählbar und springen dorthin.
+    // Ohne catalog.structural (Sofortzuweisung, IA) gibt es nur die zulässigen Diagonal-Kriterien.
+    const structuralList = catalog.structural || [];
+    const pageLink = (c) => `#/ta/${c.page}?auftraege=${(s.selected || []).join(',')}`;
     const select = el('select', { 'aria-label': 'Bewertungskriterium', class: 'crit-select' },
-      el('optgroup', { label: 'Füllt die Diagonale (Sofortzuweisung)' },
+      el('optgroup', { label: structuralList.length ? 'Füllt die Diagonale (Sofortzuweisung)' : 'Zulässig in der Sofortzuweisung (IA)' },
         catalog.criteria.map((c) => el('option', { value: c.key }, `${c.label} · ${c.en} [${c.unit}]`))),
-      el('optgroup', { label: 'Verändert die QUBO-Struktur (Hilfsvariablen)' },
-        catalog.structural.map((c) => el('option', { value: c.key, disabled: !c.page }, `${c.label} · ${c.en}${c.page ? ' → eigene Seite' : ' (geplant)'}`))));
+      structuralList.length ? el('optgroup', { label: 'Verändert die QUBO-Struktur (Hilfsvariablen)' },
+        structuralList.map((c) => el('option', { value: c.key, disabled: !c.page }, `${c.label} · ${c.en}${c.page ? ' → eigene Seite' : ' (geplant)'}`))) : null);
     select.value = crit.key;
     select.addEventListener('change', () => {
-      const structural = catalog.structural.find((c) => c.key === select.value);
+      const structural = structuralList.find((c) => c.key === select.value);
       if (structural) { location.hash = pageLink(structural); return; }
       api.setCriterion(select.value);
     });
-    const seqPage = catalog.structural.find((c) => c.page);
+    const seqPage = structuralList.find((c) => c.page);
 
     // Parameter des Kriteriums
     const paramRows = crit.params.map((key) => {
@@ -79,36 +81,64 @@ export function createCriterionPanel(host, api) {
       el('div', { class: 'crit-top' },
         el('label', { class: 'filter-group' }, el('span', { class: 'filter-label' }, 'Kriterium'), select),
         el('div', { class: 'crit-box' },
-          el('div', { html: `<b>Ziel:</b> Zuweisung so wählen, dass ${escapeHtml(crit.goal)}.` }),
+          el('div', { html: `<b>Ziel:</b> so zuweisen, dass ${escapeHtml(crit.goal)}.` }),
           el('div', { class: 'crit-formula', html: `${formulaHtml(crit.formula).replace(/^c =/, '<i>c</i><sub>t,r</sub> =')} <span class="hint">[${escapeHtml(crit.unit)}]</span>` }),
-          el('div', { class: 'hint', html: s.diagonalHint || `Diese Zahl steht für jeden Schalter auf der <b>Diagonale</b> der QUBO-Matrix: Q[<i>x</i><sub>t,r</sub>] = <i>c</i><sub>t,r</sub> − A. Die Kopplungen ändern sich durch das Kriterium nicht.
-            Das gilt, weil diese Seite eine <b>Sofortzuweisung</b> rechnet: Jeder Roboter bekommt höchstens einen Auftrag – nur dann ist <i>c</i><sub>t,r</sub> eine feste Zahl.` }),
+          el('div', { class: 'hint', html: s.diagonalHint || `Steht auf der <b>Diagonale</b>: Q[<i>x</i><sub>t,r</sub>] = <i>c</i><sub>t,r</sub> − A; die Kopplungen bleiben gleich.
+            <b>Sofortzuweisung</b>: Doppelbelegung ist zulässig, jeder Auftrag zählt dann, als startete sein Roboter sofort.` }),
           crit.sequence_note && seqPage ? el('div', { class: 'warnline', html: `⚠ ${escapeHtml(catalog.sequence_note)}
             <a href="${pageLink(seqPage)}">Summe der Erledigungszeiten mit Reihenfolge →</a>` }) : null,
           s.weightNote ? el('div', { class: 'okline', style: { marginTop: '4px' } }, s.weightNote) : null)),
+      s.overview ? overviewTable(s, catalog, crit) : null,
       crit.params.length
         ? el('div', {},
           el('div', { class: 'param-head' }, el('strong', {}, 'Annahmen'),
-            el('span', { class: 'hint' }, ' – nicht in den Logs enthalten, frei einstellbar. Die Geschwindigkeit ist aus den Snapshots geschätzt (≈ 1 Feld/s).'),
+            el('span', { class: 'hint' }, ' – nicht im Log, frei einstellbar; Geschwindigkeit aus den Snapshots geschätzt (≈ 1 Feld/s).'),
             el('button', { class: 'btn small', type: 'button', onclick: () => api.resetParams(), style: { marginLeft: '8px' } }, 'Standardwerte')),
           el('div', { class: 'params' }, paramRows))
-        : el('p', { class: 'hint' }, 'Dieses Kriterium braucht keine Annahmen – es kommt direkt aus den Koordinaten.'),
-      el('h4', {}, 'Woraus setzt sich jede Diagonal-Zahl zusammen?'),
+        : el('p', { class: 'hint' }, 'Keine Annahmen nötig – direkt aus den Koordinaten.'),
+      el('h4', {}, 'Woraus besteht jede Diagonal-Zahl?'),
       chartDiv,
-      el('p', { class: 'hint', html: `Koeffizienten von <b>${fmt(Math.min(...costs))}</b> bis <b>${fmt(Math.max(...costs))}</b> ${escapeHtml(crit.unit)}.
-        Für die Entscheidung zählen nur die <b>Unterschiede zwischen den Robotern eines Auftrags</b> (im Mittel ${fmt(meanSpread)} ${escapeHtml(crit.unit)}).
-        ${constShare > 0.005 ? `Im Schnitt <b>${nf(constShare * 100, 0)} %</b> jeder Zahl sind für alle Roboter des Auftrags gleich (schraffiert) – sie verschieben nur und machen die Zahlen größer, die die Hardware genau einstellen muss.` : 'Hier gibt es keine für alle Roboter gleichen Anteile.'}
-        ${anyEstimated ? '<br>Bei Aufträgen mit Sentinel-Pfadlänge ist die Lastfahrt mit der Manhattan-Distanz geschätzt.' : ''}` }),
-      el('details', { class: 'structural' },
-        el('summary', {}, 'Kriterien, die die QUBO-Struktur verändern – warum sie Hilfsvariablen oder Kopplungen brauchen'),
+      el('p', { class: 'hint', html: `Koeffizienten <b>${fmt(Math.min(...costs))}</b> bis <b>${fmt(Math.max(...costs))}</b> ${escapeHtml(crit.unit)}; entscheidend sind nur die
+        <b>Unterschiede zwischen den Robotern eines Auftrags</b> (Ø ${fmt(meanSpread)} ${escapeHtml(crit.unit)}).
+        ${constShare > 0.005 ? `Ø <b>${nf(constShare * 100, 0)} %</b> jeder Zahl sind für alle Roboter gleich (schraffiert) – sie verschieben nur und vergrößern die Zahlen, die die Hardware auflösen muss.` : 'Keine für alle Roboter gleichen Anteile.'}
+        ${anyEstimated ? '<br>Sentinel-Pfadlänge: Lastfahrt mit Manhattan-Distanz geschätzt.' : ''}` }),
+      structuralList.length ? el('details', { class: 'structural' },
+        el('summary', {}, 'Kriterien, die die QUBO-Struktur verändern (Hilfsvariablen, Kopplungen)'),
         el('table', { class: 'data' },
           el('thead', {}, el('tr', {}, el('th', {}, 'Kriterium'), el('th', {}, 'Warum nicht nur die Diagonale?'), el('th', {}, 'Was sich an QUBO und Hardware ändert'))),
-          el('tbody', {}, catalog.structural.map((c) => el('tr', {},
+          el('tbody', {}, structuralList.map((c) => el('tr', {},
             el('td', {}, el('strong', {}, c.label), el('div', { class: 'hint' }, c.en),
               c.page ? el('a', { href: pageLink(c) }, 'umgesetzt → eigene Seite') : el('div', { class: 'hint' }, 'geplant')),
-            el('td', {}, c.why), el('td', {}, c.qubo)))))));
+            el('td', {}, c.why), el('td', {}, c.qubo)))))) : null);
 
     drawParts(instance, crit);
+  }
+
+  /** Alle zulässigen Kriterien im selben Moment: c_tr-Formel, Spanne und bester gültiger Plan. Klick wählt. */
+  function overviewTable(s, catalog, crit) {
+    const planText = (p) => (p ? Object.entries(p.assignment).map(([t, r]) => `#${t}→R${r}`).join(' · ') : '–');
+    const own = s.overview.find((o) => o.key === crit.key);
+    const rows = s.overview.map((o) => {
+      const c = catalog.criteria.find((k) => k.key === o.key);
+      const flat = o.max - o.min < 1e-9;
+      const differs = own?.best && o.best && planText(o.best) !== planText(own.best);
+      const tr = el('tr', { class: `clickable${o.key === crit.key ? ' selected' : ''}`, title: 'Kriterium wählen' },
+        el('td', {}, el('strong', {}, c.en), el('div', { class: 'hint' }, c.label)),
+        el('td', { class: 'crit-formula', html: formulaHtml(c.formula).replace(/^c =/, '<i>c</i><sub>t,r</sub> =') }),
+        el('td', { class: 'num' }, `${fmt(o.min)} … ${fmt(o.max)} ${c.unit}`),
+        el('td', {}, planText(o.best), flat ? el('div', { class: 'hint' }, 'alle c gleich – jeder gültige Plan ist optimal')
+          : differs ? el('div', { class: 'hint' }, `anderer Plan als ${crit.en}`) : null),
+        el('td', { class: 'num' }, o.best ? `${fmt(o.best.value)} ${c.unit}` : '–'));
+      tr.addEventListener('click', () => { if (o.key !== crit.key) api.setCriterion(o.key); });
+      return tr;
+    });
+    return el('div', { style: { marginBottom: '12px' } },
+      el('h4', {}, 'Alle in der Sofortzuweisung zulässigen Kriterien – in diesem Moment'),
+      el('div', { class: 'table-wrap' }, el('table', { class: 'data' },
+        el('thead', {}, el('tr', {}, el('th', {}, 'Kriterium'), el('th', {}, 'Kostenkoeffizient'), el('th', { class: 'num' }, 'c in diesem Moment'),
+          el('th', {}, 'bester gültiger Plan'), el('th', { class: 'num' }, 'Σ c'))),
+        el('tbody', {}, rows))),
+      el('p', { class: 'hint', html: 'Exakt, weil jeder Roboter höchstens einen Auftrag fährt: <i>c</i><sub>t,r</sub> hängt von keinem Vorgänger ab. Klick wählt das Kriterium.' }));
   }
 
   function drawParts(instance, crit) {

@@ -57,8 +57,9 @@ export function renderSlotBoard(host, { sched, x, onToggle, cellValue, cellTip }
       el('tr', {}, el('th', {}, K > 1 ? 'Σ Platz' : 'Σ Spalte'), cols.map((c) => {
         const on = onCount(c.robot, c.slot);
         const gapHere = c.slot < K && on === 0 && onCount(c.robot, c.slot + 1) > 0;
-        return el('td', { class: `sum col-sum ${on <= 1 && !gapHere ? 'good' : 'bad'}${c.first ? ' grp' : ''}`, 'data-robot': c.robot, 'data-slot': c.slot },
-          gapHere ? '0 ✗ Lücke' : `${on} ${on <= 1 ? '✓' : '✗'}`);
+        const ok = (K === 1 || on <= 1) && !gapHere; // K = 1: Doppelbelegung zulässig
+        return el('td', { class: `sum col-sum ${ok ? 'good' : 'bad'}${c.first ? ' grp' : ''}`, 'data-robot': c.robot, 'data-slot': c.slot },
+          gapHere ? '0 ✗ Lücke' : `${on} ${ok ? '✓' : '✗'}`);
       }), el('td')),
       K > 1 ? el('tr', {}, el('th', {}, 'Fahrt'), robots.map((r) => {
         const seq = dec.sequences.get(r.robot_id);

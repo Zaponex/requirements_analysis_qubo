@@ -27,7 +27,7 @@ Das Gesamtkonzept steht in [docs/ARCHITEKTUR.md](docs/ARCHITEKTUR.md).
 
 Dazu kommen zwei Wege zum Lernen und Erkunden:
 
-- **[Lernlabor (Website)](webapp/README.md):** eine lokale Website, auf der die Pipeline Schritt für Schritt interaktiv aufgebaut wird. Reiter 1 · Daten ✅, Reiter 2 · Kodierungen mit One-Hot ✅ (Domain Wall und Binary folgen), Reiter 3 · Hardware folgt.
+- **[Lernlabor (Website)](webapp/README.md):** eine lokale Website, auf der die Pipeline Schritt für Schritt interaktiv aufgebaut wird. Reiter 1 · Daten ✅, Reiter 2 · Kodierungen IA (Sofortzuweisung, drei Fälle T : R) mit One-Hot, Domain Wall und Binary ✅, Reiter 3 · Kodierungen TA (mit Reihenfolge) mit One-Hot, Reihenfolge, Domain Wall, Binary und Formel-Baukasten ✅, Reiter 4 · Hardware folgt.
 - **[Kodierungen bildlich erklärt](encodings/README.md):** One-Hot, Domain Wall und Binary als Lesekapitel mit nachgerechneten Abbildungen.
 
 ## Schnellstart (PowerShell, aus dem Projektordner)
@@ -79,7 +79,7 @@ requirements_analysis_qubo/
 │   ├── common.py           ← gemeinsames Beispiel & Stil für alle Kapitel
 │   ├── formulations.py     ← One-Hot (Sofortzuweisung und mit Reihenfolge) als Regeln + QUBO-Einträge
 │   ├── cost_model.py       ← Bewertungskriterien: was kostet eine Zuweisung?
-│   ├── baukasten.py        ← Formel-Baukasten: Formulierungen aus Bausteinen (auch falsche) + Diagnose-Grundlagen
+│   ├── baukasten.py        ← Formel-Baukasten: Bausteine × Kodierung je Auftrag (auch falsch) + Diagnose-Grundlagen
 │   ├── one_hot/            ← Kapitel One-Hot (README + illustrate.py + abbildungen/)
 │   ├── domain_wall/        ← Kapitel Domain Wall (gleicher Aufbau)
 │   ├── binary/             ← Kapitel Binary (gleicher Aufbau)

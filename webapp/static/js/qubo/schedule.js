@@ -45,9 +45,9 @@ export function createSchedule(instance) {
       const mine = on.filter((v) => v.robot_id === r.robot_id).sort((a, b) => b.slot - a.slot || a.task_id - b.task_id);
       const count = (q) => mine.filter((v) => v.slot === q).length;
       for (let q = 1; q <= K; q += 1) {
-        if (count(q) > 1) {
-          issues.push({ kind: 'platz', robot: r.robot_id, slot: q, count: count(q),
-            text: K === 1 ? `R${r.robot_id} fährt ${count(q)} Aufträge gleichzeitig` : `R${r.robot_id} Platz ${q}: ${count(q)} Aufträge` });
+        // K = 1: Doppelbelegung zulässig – der Roboter fährt in Anfrage-Reihenfolge (Auftragsnummer)
+        if (K >= 2 && count(q) > 1) {
+          issues.push({ kind: 'platz', robot: r.robot_id, slot: q, count: count(q), text: `R${r.robot_id} Platz ${q}: ${count(q)} Aufträge` });
         }
         if (q < K && count(q + 1) > 0 && count(q) === 0) {
           issues.push({ kind: 'luecke', robot: r.robot_id, slot: q, text: `R${r.robot_id}: Platz ${q} leer, Platz ${q + 1} belegt` });
@@ -92,9 +92,9 @@ export function createSchedule(instance) {
     return { valid: dec.valid, value, dec };
   }
 
-  // bei K = 1 gibt es keine Reihenfolge: zwei Aufträge auf einem Roboter laufen „gleichzeitig“
+  // bei K = 1 fährt ein Roboter mehrere Aufträge in Anfrage-Reihenfolge
   const describeSeq = (sequences) => (sequences.size
-    ? [...sequences].map(([r, seq]) => `R${r}: ${seq.map((t) => `#${t}`).join(K === 1 ? ' + ' : ' → ')}`).join(' · ')
+    ? [...sequences].map(([r, seq]) => `R${r}: ${seq.map((t) => `#${t}`).join(' → ')}`).join(' · ')
     : 'alle Schalter aus');
   const seqMap = (obj) => new Map(Object.entries(obj || {}).map(([r, s]) => [Number(r), s]));
   const bitsToX = (bits) => {

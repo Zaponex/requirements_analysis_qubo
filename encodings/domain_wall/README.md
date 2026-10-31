@@ -1,10 +1,16 @@
 # Domain-Wall-Kodierung – „Die Antwort steckt in der Wand“
 
+> **Stand 26.10.2026 – keine Spaltenregel mehr.** Im Projekt ist Doppelbelegung zulässig: Ein Roboter darf mehrere Aufträge übernehmen.
+> Das Lernlabor und der Standard in [`formulations.py`](../formulations.py) verwenden deshalb keine Spaltenregel. Die Abschnitte zur
+> Spaltenregel unten beschreiben die strengere Variante aus der Literatur (höchstens ein Auftrag je Roboter); sie ist mit
+> `column_rule=True` weiter nachrechenbar und im Formel-Baukasten als Baustein „Gruppe je Roboter, höchstens eine Option“ baubar.
+
 > **Kurzfassung:** Statt eines Schalters pro Roboter gibt es eine Reihe aus $R-1$ Bits, die wie ein Thermometer von links mit Einsen „gefüllt“ wird: `000`, `100`, `110`, `111`. Die Antwort ist die Stelle, an der die Einsen in Nullen übergehen – die **Wand**. Die Regel „nur eine Wand“ braucht nur Kopplungen zwischen **direkten Nachbarn**: eine Kette statt einer Clique. Die Kosten bleiben linear.
 
 Dieses Kapitel baut auf dem [One-Hot-Kapitel](../one_hot/README.md) auf und nutzt dasselbe Beispiel. Wer One-Hot noch nicht kennt, liest am besten dort zuerst.
 
-> **Interaktiv:** Lernlabor, Reiter **2 · Kodierungen › Domain Wall** (`python -m webapp --open`) – derselbe Weg an beliebigen echten Aufträgen, mit klickbaren Ketten. Formulierung: [`formulations.domain_wall`](../formulations.py), geprüft in [`tests/test_domain_wall.py`](../../tests/test_domain_wall.py).
+> **Interaktiv:** Lernlabor, Reiter **3 · Kodierungen TA › Domain Wall** (`python -m webapp --open`) – derselbe Weg an beliebigen echten Aufträgen, mit klickbaren Ketten. Formulierung: [`formulations.domain_wall`](../formulations.py), geprüft in [`tests/test_domain_wall.py`](../../tests/test_domain_wall.py).
+> Sofortzuweisung mit Spaltenregel und den Fällen T = R, T < R, T > R (Kette je Auftrag bzw. je Roboter): Reiter **2 · Kodierungen IA › Domain Wall**, [`formulations.domain_wall_ia`](../formulations.py), geprüft in [`tests/test_ia_domain_wall.py`](../../tests/test_ia_domain_wall.py).
 
 1. [Was uns an One-Hot gestört hat](#schritt-1--was-uns-an-one-hot-gestört-hat)
 2. [Eine Reihe aus Einsen und Nullen](#schritt-2--eine-reihe-aus-einsen-und-nullen)

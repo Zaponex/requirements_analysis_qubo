@@ -5,14 +5,15 @@
 import { el, fill, nf, withTip, tipHtml, escapeHtml } from '../util.js';
 import { C, TERM_COLORS } from '../theme.js';
 import { createLayoutMap } from '../components/layoutMap.js';
+import { autoWeights, createWeightControls, weightsFromParams } from '../components/weightControls.js';
 import { initialScenario, renderScenario } from '../components/scenario.js';
 import { renderSlotBoard } from '../components/slotBoard.js';
 import { SEGMENTS as SEG, renderGantt as drawGantt } from '../components/gantt.js';
 import { MAX_SEARCH_BITS, anneal, energy, fromMask, makeModel, rankOf, search, toMask } from '../qubo/engine.js';
 import { SLOT_NAME, createSchedule } from '../qubo/schedule.js';
 import { createMatrixView } from '../qubo/matrixView.js';
+import { createLandscape } from '../components/landscape.js';
 import { createGraphView } from '../qubo/graphView.js';
-import { niceCeil } from './onehotCriterion.js';
 
 const TERMS = ['kosten', 'reihenfolge', 'zeile', 'spalte', 'luecke'];
 const LABELS = {
@@ -54,6 +55,12 @@ export function renderSequence(root, { run, api, params }) {
   const ganttNote = el('div');
   const ganttHost = el('div', { class: 'chart' });
   const controlsHost = el('div');
+  const togglesHost = el('div');
+  const weightsHost = el('div');
+  controlsHost.append(togglesHost, weightsHost);
+  const linkedWeights = weightsFromParams(params, st, ['A', 'B', 'D']);
+  let firstLoad = true;
+  const weights = createWeightControls(weightsHost, { onChange: (key, value) => { st[key] = value; scheduleUpdate(); } });
   const energyHost = el('div');
   const formulaHost = el('div', { class: 'formula-body' });
   const optimumHost = el('div');
@@ -61,6 +68,8 @@ export function renderSequence(root, { run, api, params }) {
   const hardwareHost = el('div');
   const matrixHost = el('div');
   const graphHost = el('div');
+  const normHost = el('div');
+  const landHost = el('div');
   const cardEl = (title, sub2, ...body) => el('section', { class: 'card' },
     el('div', { class: 'card-head' }, el('div', {}, el('h3', {}, title), sub2 ? el('div', { class: 'card-sub', html: sub2 }) : null)),
     ...body);
@@ -68,36 +77,40 @@ export function renderSequence(root, { run, api, params }) {
 
   root.append(el('p', {
     class: 'intro',
-    html: `Auf der Seite <a href="#/kodierungen/one-hot">One-Hot</a> bekommt jeder Roboter <b>höchstens einen</b> Auftrag (Sofortzuweisung).
-      Hier darf ein Roboter <b>mehrere Aufträge nacheinander</b> fahren. Dann ist die Erledigungszeit keine feste Zahl je
-      Auftrag und Roboter mehr – die QUBO braucht <b>Hilfsvariablen</b> für den Platz in der Reihenfolge. Alle Zahlen sind live und
-      stammen aus deinem Lauf; die Herleitung steht in <code>encodings/reihenfolge/README.md</code>.`,
+    html: `Bei <a href="#/ta/one-hot">One-Hot</a> fährt jeder Roboter <b>höchstens einen</b> Auftrag, hier <b>mehrere nacheinander</b>.
+      Die Erledigungszeit ist dann keine feste Zahl je Auftrag und Roboter – die QUBO braucht <b>Hilfsvariablen</b> für den Platz.
+      Herleitung: <code>encodings/reihenfolge/README.md</code>.`,
   }));
-  root.append(cardEl('Warum reicht die Diagonale hier nicht mehr?', 'Dieselbe Entscheidung „Roboter r fährt Auftrag t“ kostet je nach Vorgänger etwas anderes', whyHost));
+  root.append(cardEl('Warum reicht die Diagonale nicht mehr?', '„Roboter r fährt Auftrag t“ kostet je nach Vorgänger etwas anderes', whyHost));
   root.append(gap());
   root.append(el('div', { class: 'grid grid-2' },
-    cardEl('Szenario', 'Echte Aufträge, Plätze je Roboter, Kriterium und Annahmen', scenarioBody),
-    cardEl('Lage in der Fabrik', 'Linie = Anfahrt laut Schalterstellung (R62·1 = erste Fahrt von R62) · Pfeil = Lastfahrt', mapHost)));
+    cardEl('Szenario', 'Aufträge, Plätze je Roboter, Kriterium, Annahmen', scenarioBody),
+    cardEl('Lage in der Fabrik', 'Linie = Anfahrt laut Schaltern (R62·1 = erste Fahrt von R62) · Pfeil = Lastfahrt', mapHost)));
   root.append(gap());
   root.append(cardEl('Schachbrett mit Plätzen',
-    'Zeile = Auftrag · Spaltengruppe = Roboter · Spalte = Platz <i>q</i>, <b>von hinten gezählt</b> (q = 1: letzter Auftrag des Roboters) – links nach rechts = Fahrreihenfolge · Klick schaltet x = 0 ↔ 1 · kleine Zahl = Kosten je Platz',
+    'Zeile = Auftrag · Spaltengruppe = Roboter · Spalte = Platz <i>q</i> <b>von hinten</b> (q = 1: letzter Auftrag), links → rechts = Fahrreihenfolge · Klick: x 0 ↔ 1 · kleine Zahl = Kosten je Platz',
     quickHost, boardHost));
   root.append(gap());
   root.append(el('div', { class: 'grid oh-main' },
-    cardEl('Ablaufplan dieser Schalterstellung', 'So würden die Roboter fahren – jede Erledigungszeit C ist ablesbar', ganttNote, ganttHost),
-    cardEl('Energie dieses Zustands', 'Jeder Beitrag einzeln – bei gültigen Zuständen ergeben Kosten + Vorgänger-Korrektur genau die Summe aus dem Ablaufplan', controlsHost, energyHost)));
-  root.append(gap());
-  root.append(cardEl('Die Formel dahinter', 'Was ist neu gegenüber der Sofortzuweisung – und wie werden die Zahlen eingesetzt? · über Formelteile fahren hebt Schalter hervor', formulaHost));
-  root.append(gap());
-  root.append(cardEl('Optimum und Probe', 'Findet die QUBO den besten Ablaufplan? Verglichen mit dem Aufzählen aller Pläne', optimumHost, sweepHost));
-  root.append(gap());
-  root.append(cardEl('Was kosten die Hilfsvariablen an Hardware?', 'Qubits und Kopplungen für dieselben Aufträge – je nachdem, wie die Reihenfolge abgebildet wird', hardwareHost));
+    cardEl('Ablaufplan dieser Schalterstellung', 'So fahren die Roboter – jede Erledigungszeit C ablesbar', ganttNote, ganttHost),
+    cardEl('Energie dieses Zustands', 'Jeder Beitrag einzeln – gültig: Kosten + Vorgänger-Korrektur = Summe aus dem Ablaufplan', controlsHost, energyHost)));
   root.append(gap());
   root.append(el('div', { class: 'grid grid-2' },
-    cardEl('QUBO-Matrix', 'Jede Zahl ist eine Summe der Terme · Hover erklärt · umrandet = zählt gerade', matrixHost),
+    cardEl('QUBO-Matrix', 'Summe der Terme · Hover erklärt · umrandet = zählt jetzt', matrixHost),
     cardEl('Kopplungsgraph', 'Knoten = Qubits (Zeile = Auftrag, Spalte = Roboter·Platz), Linien = Kopplungen · dick = beide an', graphHost)));
+  root.append(gap());
+  root.append(el('div', { class: 'grid grid-2' },
+    cardEl('Normierte QUBO-Matrix', 'Q / max|Q| · blau = Belohnung, rot = Strafe', normHost),
+    cardEl('Energielandschaft', 'Zustände als Fläche · Ziehen dreht, Scrollen zoomt', landHost)));
+  root.append(gap());
+  root.append(cardEl('Die Formel dahinter', 'Neu gegenüber der Sofortzuweisung · Hover hebt Schalter hervor', formulaHost));
+  root.append(gap());
+  root.append(cardEl('Optimum und Probe', 'Findet die QUBO den besten Ablaufplan? Gegen alle Pläne aufgezählt', optimumHost, sweepHost));
+  root.append(gap());
+  root.append(cardEl('Was kosten die Hilfsvariablen an Hardware?', 'Qubits und Kopplungen je nach Abbildung der Reihenfolge', hardwareHost));
 
   const map = createLayoutMap(mapHost, { entities: run.entities, robots: run.robots, entityLabels: false });
+  const landscape = createLandscape(normHost, landHost);
   let matrixView = null;
   let graphView = null;
 
@@ -165,7 +178,9 @@ export function renderSequence(root, { run, api, params }) {
       return;
     }
     const d = st.data;
-    ({ A: st.A, B: st.B, D: st.D } = d.weights);
+    // Empfohlene Gewichte übernehmen – außer per Link gesetzt oder Automatik aus
+    if (!(firstLoad && linkedWeights) && autoWeights()) ({ A: st.A, B: st.B, D: st.D } = d.weights);
+    firstLoad = false;
     sched = createSchedule(d.instance);
     const n = d.formulation.n;
     st.x = new Uint8Array(n);
@@ -181,7 +196,7 @@ export function renderSequence(root, { run, api, params }) {
     });
     drawScenario();
     update();
-    // Schwellen per Link: #/kodierungen/reihenfolge?schwellen=1 (nur beim ersten Laden)
+    // Schwellen per Link: #/ta/reihenfolge?schwellen=1 (nur beim ersten Laden)
     if (params.schwellen && !st.sweepLinked && n <= SWEEP_MAX_BITS) {
       st.sweepLinked = true;
       st.sweep = computeSweeps();
@@ -249,6 +264,9 @@ export function renderSequence(root, { run, api, params }) {
     return out;
   }
 
+  /** Bei K = 1 gibt es keine Reihenfolge, Platz- und Lückenregel (Doppelbelegung zulässig). */
+  const shownTerms = () => (st.data.instance.slots >= 2 ? TERMS : TERMS.filter((k) => !['reihenfolge', 'spalte', 'luecke'].includes(k)));
+
   // ---------------------------------------------------------------- Rechnen
   function compute() {
     const form = st.data.formulation;
@@ -286,6 +304,8 @@ export function renderSequence(root, { run, api, params }) {
     renderHardware();
     matrixView.update(st.model, st.x);
     graphView.update(st.model, st.x);
+    landscape.update({ model: st.model, labels: vars().map((v, i) => varLabel(i)), x: st.x, minX: st.result.min.x,
+      isValid: (x) => decode(x).valid, cacheKey: st.result });
   }
 
   // ---------------------------------------------------------------- ① Warum
@@ -298,7 +318,7 @@ export function renderSequence(root, { run, api, params }) {
       if (mine.length >= 2) { ex = { r: r.robot_id, a: mine[0].transport_id, b: mine[1].transport_id }; break; }
     }
     if (!ex) {
-      fill(whyHost, el('p', {}, 'Für das Beispiel braucht es zwei Aufträge, die derselbe Roboter fahren kann – wähle oben mindestens zwei Aufträge.'));
+      fill(whyHost, el('p', {}, 'Das Beispiel braucht zwei Aufträge, die derselbe Roboter fahren kann – mindestens zwei wählen.'));
       return;
     }
     const { r, a, b } = ex;
@@ -331,24 +351,22 @@ export function renderSequence(root, { run, api, params }) {
     fill(whyHost, el('div', { class: 'why-grid' },
       el('div', { class: 'why-step' },
         el('h4', {}, '① Sofortzuweisung: eine feste Zahl'),
-        el('p', { html: `R${r} fährt nur #${b}: Anfahrt vom Standort ${fmt(alone.setup)} s, dann Beladen, Lastfahrt, Entladen ${fmt(alone.p)} s.
-          ${weighted() ? `Erledigt nach <b>C<sub>${b}</sub> = ${fmt(Calone)} s</b>` : `Arbeitszeit <b>${fmt(alone.setup + alone.p)} s</b>`}.
-          Diese Zahl gehört fest zum Schalter <i>x</i><sub>${b},${r}</sub> – sie steht auf der <b>Diagonale</b>.` }),
+        el('p', { html: `R${r} fährt nur #${b}: Anfahrt ${fmt(alone.setup)} s + Beladen, Lastfahrt, Entladen ${fmt(alone.p)} s →
+          ${weighted() ? `<b>C<sub>${b}</sub> = ${fmt(Calone)} s</b>` : `Arbeitszeit <b>${fmt(alone.setup + alone.p)} s</b>`}, fest zum Schalter <i>x</i><sub>${b},${r}</sub>: <b>Diagonale</b>.` }),
         tbarWrap(segs(rel, alone.setup, tb, 'vom Standort'))),
       el('div', { class: 'why-step', style: { borderLeftColor: TERM_COLORS.reihenfolge } },
         el('h4', {}, '② Mit Reihenfolge: hängt vom Vorgänger ab'),
         el('p', { html: weighted()
-          ? `Fährt R${r} vorher #${a}, wartet #${b}, bis #${a} abgeliefert ist (${fmt(Ca)} s) – und die Anfahrt beginnt am Abgabeort von #${a} (${fmt(after)} s statt ${fmt(alone.setup)} s).
-            Erledigt nach <b>C<sub>${b}</sub> = ${fmt(Cafter)} s</b> statt ${fmt(Calone)} s. Dieselbe Entscheidung „R${r} fährt #${b}“ hat <b>keine feste ${what}</b> mehr.`
-          : `Fährt R${r} vorher #${a}, beginnt die Anfahrt zu #${b} am Abgabeort von #${a}: <b>${fmt(after)} s statt ${fmt(alone.setup)} s</b>.
-            Die ${what} von „R${r} fährt #${b}“ hängt also vom Vorgänger ab – <b>keine feste Zahl</b> mehr.` }),
+          ? `Fährt R${r} vorher #${a}, wartet #${b} bis ${fmt(Ca)} s, die Anfahrt startet am Abgabeort von #${a} (${fmt(after)} statt ${fmt(alone.setup)} s):
+            <b>C<sub>${b}</sub> = ${fmt(Cafter)} s</b> statt ${fmt(Calone)} s – „R${r} fährt #${b}“ hat <b>keine feste ${what}</b> mehr.`
+          : `Fährt R${r} vorher #${a}, startet die Anfahrt zu #${b} am Abgabeort von #${a}: <b>${fmt(after)} statt ${fmt(alone.setup)} s</b> – die ${what} hängt vom Vorgänger ab.` }),
         tbarWrap([...segs(rel, s0(r, a).time, ta, 'vom Standort'), ...segs(0, after, tb, `vom Abgabeort von #${a}`)])),
       el('div', { class: 'why-step', style: { borderLeftColor: TERM_COLORS.luecke } },
         el('h4', {}, '③ Der Trick: Hilfsvariablen für den Platz'),
-        el('p', { html: `Statt <i>x</i><sub>t,r</sub> gibt es <i>x</i><sub>t,r,q</sub> = „Roboter <i>r</i> fährt Auftrag <i>t</i> als <i>q</i>-letzten“.
-          ${weighted() ? `Zählt man <b>von hinten</b>, ist der Beitrag fest: <b>q · (Anfahrt + Bearbeitung)</b> – ein Auftrag auf Platz q verzögert sich selbst und die q − 1 Aufträge danach.` : 'Jeder Platz zählt seine Fahrt genau einmal.'}
-          Nur die Anfahrt hängt noch vom <b>direkten Vorgänger</b> ab: eine Kopplung zwischen Platz q + 1 und q. Alles bleibt quadratisch –
-          aber es braucht <b>${d.slots}× so viele Qubits</b> (${st.data.formulation.n} statt ${st.data.estimates[0].qubits}).` }))));
+        el('p', { html: `<i>x</i><sub>t,r,q</sub> = „<i>r</i> fährt <i>t</i> als <i>q</i>-letzten“.
+          ${weighted() ? `<b>Von hinten</b> gezählt ist der Beitrag fest: <b>q · (Anfahrt + Bearbeitung)</b> – Platz q verzögert sich und die q − 1 danach.` : 'Jeder Platz zählt seine Fahrt einmal.'}
+          Nur die Anfahrt hängt am <b>direkten Vorgänger</b>: eine Kopplung Platz q + 1 ↔ q. Alles bleibt quadratisch, kostet aber
+          <b>${d.slots}× so viele Qubits</b> (${st.data.formulation.n} statt ${st.data.estimates[0].qubits}).` }))));
   }
 
   function renderMap() {
@@ -388,7 +406,7 @@ export function renderSequence(root, { run, api, params }) {
       el('button', { class: 'btn small', type: 'button', title: 'Jeder Auftrag nimmt den nächsten Roboter – auch wenn der dann mehrere fahren muss', onclick: () => { st.x = sched.nearest(); update(); } }, 'Jeder nimmt den nächsten'),
       el('button', { class: 'btn small primary', type: 'button', disabled: !st.data.exact?.bits, title: 'Den besten Ablaufplan laden (Aufzählen aller Pläne)',
         onclick: () => { st.x = bitsToX(st.data.exact.bits); update(); } }, 'Bester Ablaufplan'),
-      el('a', { class: 'btn small', href: `#/kodierungen/baukasten?auftraege=${st.selected.join(',')}&plaetze=${st.slots}&kriterium=${st.criterion}`,
+      el('a', { class: 'btn small', href: `#/ta/baukasten?auftraege=${st.selected.join(',')}&plaetze=${st.slots}&kriterium=${st.criterion}`,
         title: 'Dieselben Aufträge im Formel-Baukasten: Bausteine verändern, weglassen, falsch machen' }, 'Formel verändern → Baukasten'));
   }
 
@@ -400,30 +418,25 @@ export function renderSequence(root, { run, api, params }) {
   }
 
   // ---------------------------------------------------------------- Energie
-  function sliderMax() {
-    return niceCeil(3 * Math.max(st.data.weights.A, st.data.weights.B, st.data.weights.D, st.A, st.B, st.D));
-  }
   function renderControls() {
     const toggles = el('div', { class: 'filter-group' }, el('span', { class: 'filter-label' }, 'Terme'),
-      TERMS.map((k) => {
+      shownTerms().map((k) => {
         const b = el('button', { class: 'chip', type: 'button', 'aria-pressed': String(Boolean(st.terms[k])), title: LABELS[k] },
           el('span', { class: 'swatch', style: { background: TERM_COLORS[k] } }), SHORT[k]);
         b.addEventListener('click', () => { st.terms[k] = !st.terms[k]; update(); });
         return b;
       }));
-    const slider = (name, key, color) => {
-      const input = el('input', { type: 'range', min: 0, max: sliderMax(), step: 1, value: st[key], 'aria-label': name });
-      const val = el('strong', { style: { color } }, nf(st[key]));
-      input.addEventListener('input', () => { st[key] = Number(input.value); val.textContent = nf(st[key]); scheduleUpdate(); });
-      return el('div', { class: 'slider-row' }, el('span', { class: 'filter-label', style: { minWidth: '170px' } }, name), input, val);
-    };
+    fill(togglesHost, toggles);
     const w = st.data.weights;
-    fill(controlsHost, toggles,
-      slider('Strafgewicht A (Zeile)', 'A', TERM_COLORS.zeile),
-      slider('Strafgewicht B (Platz)', 'B', TERM_COLORS.spalte),
-      slider('Strafgewicht D (Lücke)', 'D', TERM_COLORS.luecke),
-      el('p', { class: 'hint' }, `Standard: A = D = ${nf(w.A)} (≥ 1,1 × größter möglicher Zuwachs ${nf(w.U)} s), B = 2·A. `,
-        el('button', { class: 'btn small', type: 'button', onclick: () => { ({ A: st.A, B: st.B, D: st.D } = w); update(); } }, 'Standardgewichte')));
+    const multi = st.data.instance.slots >= 2; // K = 1: keine Platz- und Lückenregel (Doppelbelegung zulässig)
+    weights.render({
+      items: [
+        { key: 'A', label: 'A · Zeilenregel', color: TERM_COLORS.zeile, value: st.A, recommended: w.A, hint: '> größter möglicher Zuwachs' },
+        multi ? { key: 'B', label: 'B · Platzregel', color: TERM_COLORS.spalte, value: st.B, recommended: w.B, hint: '= 2·A (überstimmt die Lückenregel)' } : null,
+        multi ? { key: 'D', label: 'D · Lückenregel', color: TERM_COLORS.luecke, value: st.D, recommended: w.D, hint: '> größter möglicher Zuwachs' } : null,
+      ].filter(Boolean),
+      note: multi ? `Empfehlung: A = D ≥ 1,1 × größter möglicher Zuwachs (${nf(w.U)} s), B = 2·A.` : `Empfehlung: A ≥ 1,1 × größter möglicher Zuwachs (${nf(w.U)} s).`,
+    });
   }
   let pending = null;
   function scheduleUpdate() {
@@ -465,7 +478,7 @@ export function renderSequence(root, { run, api, params }) {
           rank ? el('div', {}, `Platz ${nf(rank)} von ${nf(st.result.total)}`) : null,
           el('div', { class: dec.valid ? 'okline' : 'warnline' }, dec.valid ? '✓ gültig' : `✗ ${dec.issues.length} Regelverstoß/-verstöße`))),
       bar,
-      ...TERMS.map(group),
+      ...shownTerms().map(group),
       dec.valid && st.terms.kosten && st.terms.reihenfolge
         ? el('p', { class: Math.abs(objective - sim.total) < 1e-6 ? 'okline' : 'warnline' },
           `Probe: Kosten + Vorgänger-Korrektur = ${fmt(objective)} s – Ablaufplan: ${fmt(sim.total)} s ${Math.abs(objective - sim.total) < 1e-6 ? '✓ identisch' : '✗ Abweichung'}`)
@@ -499,7 +512,7 @@ export function renderSequence(root, { run, api, params }) {
       }
     }
     let example = '';
-    let corr = d.slots < 2 ? '<p class="hint">Mit K = 1 gibt es keine Reihenfolge: keine Vorgänger-Korrektur, keine Lückenregel – die Formel wird genau zur Sofortzuweisung.</p>' : '';
+    let corr = d.slots < 2 ? '<p class="hint">K = 1: keine Vorgänger-Korrektur, keine Platz- und Lückenregel – die Sofortzuweisung. Doppelbelegung ist zulässig; die QUBO zählt den zweiten Auftrag dann, als startete er sofort.</p>' : '';
     if (exSeq) {
       const sim = simulate(new Map([[exR, exSeq]]));
       const rows = sim.rows;
@@ -513,9 +526,9 @@ export function renderSequence(root, { run, api, params }) {
           ${w ? `<div>${cLines.join(' &nbsp;·&nbsp; ')}</div>
           <div><span class="eq">⇒</span> Σ C = ${rows.map((r) => fmt(r.finish)).join(' + ')} = <b>${fmt(sim.completion)}</b> s</div>
           <div><span class="eq">=</span> ${rel > 0 ? `${n}·${fmt(rel)} + ` : ''}${posTerms.join(' + ')} = <b>${fmt(sim.completion)}</b> s &nbsp;✓</div>
-          <div class="why">Gleiche Zahl – aber jetzt ist jeder Summand fest an einen Schalter gebunden: ${rows.map((row, k) => `${xv({ task_id: row.task, robot_id: exR, slot: n - k })} trägt ${n - k}·(Anfahrt + Bearbeitung)`).join(', ')}.</div>`
+          <div class="why">Gleiche Zahl, jeder Summand fest an einen Schalter: ${rows.map((row, k) => `${xv({ task_id: row.task, robot_id: exR, slot: n - k })} trägt ${n - k}·(Anfahrt + Bearbeitung)`).join(', ')}.</div>`
     : `<div>Arbeitszeit = ${rows.map((row) => `(${fmt(row.setup.time)} + ${fmt(taskOf(row.task).p)})`).join(' + ')} = <b>${fmt(sim.busy)}</b> s</div>
-          <div class="why">Jede Fahrt zählt genau einmal (Gewicht 1) – nur die Anfahrten hängen von der Reihenfolge ab.</div>`}
+          <div class="why">Jede Fahrt zählt einmal – nur die Anfahrten hängen von der Reihenfolge ab.</div>`}
         </div>`;
       const [a, b] = exSeq;
       const qB = w ? n - 1 : 1;
@@ -526,41 +539,41 @@ export function renderSequence(root, { run, api, params }) {
           <div>Anfahrt zu #${b} auf Platz ${qq}: ${qdot}<i>s</i><sub>→${b}</sub> = ${qdot}<i>s</i>⁰<sub>${exR},${b}</sub> + ${qdot}(<i>s</i><sub>${a},${b}</sub> − <i>s</i>⁰<sub>${exR},${b}</sub>)·${xv({ task_id: a, robot_id: exR, slot: qq + 1 })}</div>
           <div><span class="eq">=</span> ${w ? `${qB}·` : ''}${fmt(s0b)} &nbsp;+&nbsp; ${w ? `${qB}·` : ''}(${fmt(sab)} − ${fmt(s0b)})·${xv({ task_id: a, robot_id: exR, slot: qq + 1 })}
             = ${fmt(qB * s0b)} ${qB * (sab - s0b) < 0 ? '−' : '+'} ${fmt(Math.abs(qB * (sab - s0b)))}·${xv({ task_id: a, robot_id: exR, slot: qq + 1 })}</div>
-          <div class="why"><span class="p-lin">Erster Teil: steckt schon in den Kosten je Platz (Diagonale).</span>
-            <span class="p-pair">Zweiter Teil: zählt nur, wenn #${a} direkt davor liegt – eine Kopplung zwischen den Schaltern auf Platz ${qq + 1} und ${qq}.</span>
-            ${sab < s0b ? `Hier negativ: vom Abgabeort von #${a} ist es näher als vom Standort – die Kopplung <b>lockt</b> #${a} vor #${b}.` : `Hier positiv: vom Abgabeort von #${a} ist es weiter als vom Standort.`}</div>
+          <div class="why"><span class="p-lin">Teil 1: schon in den Kosten je Platz (Diagonale).</span>
+            <span class="p-pair">Teil 2: nur wenn #${a} direkt davor liegt – Kopplung Platz ${qq + 1} ↔ ${qq}.</span>
+            ${sab < s0b ? `Negativ: vom Abgabeort von #${a} ist es näher – die Kopplung <b>lockt</b> #${a} vor #${b}.` : `Positiv: vom Abgabeort von #${a} ist es weiter als vom Standort.`}</div>
         </div>`;
     }
 
     formulaHost.innerHTML = `
-      <p class="fx-intro">Die komplette Formulierung. <b>Neu</b> gegenüber der Sofortzuweisung: der Platz-Index <i>q</i>, die
-        <span style="color:${TERM_COLORS.reihenfolge}">Vorgänger-Korrektur</span> und die <span style="color:${TERM_COLORS.luecke}">Lückenregel</span>.
-        ${w ? '' : 'Beim Kriterium „Summe der Arbeitszeiten“ zählt jeder Platz einfach (Gewicht 1) – die Platz-Variablen braucht es trotzdem, weil die Anfahrt vom Vorgänger abhängt.'}</p>
+      <p class="fx-intro">Neu gegenüber der Sofortzuweisung: Platz-Index <i>q</i>, <span style="color:${TERM_COLORS.reihenfolge}">Vorgänger-Korrektur</span>
+        und <span style="color:${TERM_COLORS.luecke}">Lückenregel</span>.
+        ${w ? '' : 'Bei der Summe der Arbeitszeiten zählt jeder Platz einfach – Platz-Variablen braucht es trotzdem, weil die Anfahrt vom Vorgänger abhängt.'}</p>
       <div class="fx">
         ${line('kosten', '<i>E</i>(<i>x</i>) =', `Σ<sub><i>t,r,q</i></sub> [ ${w ? 'ρ<sub><i>r</i></sub> + ' : ''}${qdot}(<i>s</i>⁰<sub><i>r,t</i></sub> + <i>p<sub>t</sub></i>) ] · <i>x</i><sub><i>t,r,q</i></sub>`,
-    `<b>Kosten je Platz.</b> ${w ? 'Ein Auftrag auf Platz q (von hinten) verzögert sich selbst und die q − 1 danach – deshalb zählen Anfahrt vom Standort s⁰ und Bearbeitung p genau q-mal. ρ: Wartezeit, bis ein belegter Roboter frei ist.' : 'Anfahrt vom Standort und Bearbeitung zählen einmal.'}`)}
+    `<b>Kosten je Platz:</b> ${w ? 'Platz q (von hinten) verzögert sich und die q − 1 danach – Anfahrt s⁰ und Bearbeitung p zählen q-mal; ρ = Wartezeit, bis ein belegter Roboter frei ist.' : 'Anfahrt vom Standort und Bearbeitung zählen einmal.'}`)}
         ${line('reihenfolge', '+', `Σ<sub><i>r,q</i></sub> Σ<sub><i>t</i>≠<i>t</i>′</sub> ${qdot}(<i>s</i><sub><i>t,t</i>′</sub> − <i>s</i>⁰<sub><i>r,t</i>′</sub>) · <i>x</i><sub><i>t,r,q</i>+1</sub> <i>x</i><sub><i>t</i>′<i>,r,q</i></sub>`,
-    '<b>Vorgänger-Korrektur.</b> Liegt t direkt vor t′, beginnt die Anfahrt zu t′ am Abgabeort von t (s<sub>t,t′</sub>) statt am Standort (s⁰). Die Differenz ist eine Kopplung zwischen benachbarten Plätzen.')}
+    '<b>Vorgänger-Korrektur:</b> liegt t direkt vor t′, startet die Anfahrt zu t′ am Abgabeort von t (s<sub>t,t′</sub> statt s⁰) – Kopplung benachbarter Plätze.')}
         ${line('zeile', '+', '<i>A</i> · Σ<sub><i>t</i></sub> ( 1 − Σ<sub><i>r,q</i></sub> <i>x</i><sub><i>t,r,q</i></sub> )²',
-    '<b>Zeilenregel.</b> Jeder Auftrag bekommt genau einen Platz bei genau einem Roboter.')}
+    '<b>Zeilenregel:</b> je Auftrag genau ein Platz bei genau einem Roboter.')}
         ${line('spalte', '+', '<i>B</i> · Σ<sub><i>r,q</i></sub> Σ<sub><i>t</i>&lt;<i>t</i>′</sub> <i>x</i><sub><i>t,r,q</i></sub> <i>x</i><sub><i>t</i>′<i>,r,q</i></sub>',
-    '<b>Platzregel.</b> Auf jedem Platz eines Roboters höchstens ein Auftrag. Mit K = 1 ist das genau die Spaltenregel der Sofortzuweisung.')}
+    '<b>Platzregel:</b> höchstens ein Auftrag je Roboter-Platz – verbietet keine Doppelbelegung (die liegt auf verschiedenen Plätzen); entfällt bei K = 1.')}
         ${line('luecke', '+', '<i>D</i> · Σ<sub><i>r,q</i></sub> <i>o</i><sub><i>r,q</i>+1</sub> ( 1 − <i>o</i><sub><i>r,q</i></sub> ), &nbsp;<i>o</i><sub><i>r,q</i></sub> = Σ<sub><i>t</i></sub> <i>x</i><sub><i>t,r,q</i></sub>',
-    '<b>Lückenregel.</b> Platz q + 1 darf nur belegt sein, wenn Platz q belegt ist. Sonst gälte der Auftrag auf q + 1 als „erster“ und führe vom Standort los – ein Schein-Plan.')}
+    '<b>Lückenregel:</b> Platz q + 1 nur, wenn q belegt – sonst führe der Auftrag auf q + 1 als „erster“ vom Standort los (Schein-Plan).')}
       </div>
       <h4>Woher kommt ${w ? 'das Gewicht q' : 'die Reihenfolge'}?</h4>
       <div class="fx-derivation t-kosten">
         <div>Roboter <i>r</i> fährt π<sub>1</sub>, π<sub>2</sub>, …, π<sub><i>n</i></sub>. Erledigungszeit des <i>k</i>-ten:
           C<sub>π<sub><i>k</i></sub></sub> = ρ<sub><i>r</i></sub> + Σ<sub><i>l</i> ≤ <i>k</i></sub> ( <i>s</i><sub>π<sub><i>l</i>−1</sub> π<sub><i>l</i></sub></sub> + <i>p</i><sub>π<sub><i>l</i></sub></sub> )</div>
         ${w ? `<div><span class="eq">⇒</span> Σ<sub><i>k</i></sub> C<sub>π<sub><i>k</i></sub></sub> = <i>n</i>·ρ<sub><i>r</i></sub> + Σ<sub><i>l</i></sub> (<i>n</i> − <i>l</i> + 1) · ( <i>s</i> + <i>p</i> )</div>
-        <div class="why">Jede Fahrt zählt so oft, wie ab ihr noch Aufträge warten. Mit dem Platz <b>von hinten</b> <i>q</i> = <i>n</i> − <i>l</i> + 1 ist dieses Gewicht eine
-          feste Zahl je Schalter – von vorne gezählt hinge es von <i>n</i> ab, also von allen anderen Schaltern (kubische Terme).</div>`
-    : '<div class="why">Für die Summe der Arbeitszeiten zählt jede Fahrt einmal. Die Erledigungszeiten selbst spielen keine Rolle – aber die Anfahrt s hängt vom Vorgänger ab.</div>'}
+        <div class="why">Jede Fahrt zählt so oft, wie ab ihr noch Aufträge warten. Mit <i>q</i> = <i>n</i> − <i>l</i> + 1 <b>von hinten</b> ist das eine feste Zahl je Schalter –
+          von vorne hinge es von <i>n</i> ab, also von allen anderen Schaltern (kubische Terme).</div>`
+    : '<div class="why">Summe der Arbeitszeiten: jede Fahrt einmal; nur die Anfahrt s hängt vom Vorgänger ab.</div>'}
       </div>
       ${example}
       <h4>Woher kommt die Vorgänger-Korrektur?</h4>
-      ${corr || '<p class="hint">Für das Zahlenbeispiel braucht es zwei Aufträge auf einem Roboter.</p>'}
-      <h4>Wohin wandert welcher Teil in der QUBO-Matrix?</h4>
+      ${corr || '<p class="hint">Das Zahlenbeispiel braucht zwei Aufträge auf einem Roboter.</p>'}
+      <h4>Wohin wandert jeder Teil?</h4>
       <table class="data fx-table">
         <thead><tr><th>Herkunft</th><th>Formelteil</th><th>landet in</th><th class="num">Wert hier</th></tr></thead>
         <tbody>
@@ -571,8 +584,7 @@ export function renderSequence(root, { run, api, params }) {
           <tr class="t-row t-luecke" ${hl({ kind: 'luecke' })}><td>Lückenregel</td><td>+ <i>D</i>·<i>x</i><sub>q+1</sub> &nbsp; − <i>D</i>·<i>x</i><sub>q+1</sub><i>x</i><sub>q</sub></td><td>Diagonale (Platz q + 1) · Kopplung <b>benachbarter Plätze</b></td><td class="num">${fmt(st.D)} · ${fmt(-st.D)}</td></tr>
         </tbody>
       </table>
-      <p class="hint">Warum B größer als D? Sind auf Platz q zwei Aufträge, wird die Lückenregel negativ (1 − 2 = −1) – die Platzregel muss das überstimmen.
-        Mit Standardgewichten B = 2·A, A = D.</p>`;
+      <p class="hint">B > D, weil die Lückenregel bei zwei Aufträgen auf Platz q negativ wird (1 − 2 = −1). Standard: B = 2·A, A = D.</p>`;
   }
   function rangeOf(kind) {
     const vals = st.data.formulation.rules.filter((r) => r.kind === kind).map((r) => r.c);
@@ -598,9 +610,9 @@ export function renderSequence(root, { run, api, params }) {
           el('div', {}, describeSeq(minDec.sequences)),
           el('div', { class: minDec.valid ? 'okline' : 'warnline' }, minDec.valid ? '✓ gültiger Plan' : `✗ ${minDec.issues.map((i) => i.text).join(' · ')}`),
           loadBtn(res.min.x),
-          res.plain ? el('div', { class: 'hint', html: `Nur Einzelbits kippen (ohne Tausch-Züge): E = ${fmt(res.plain.E)}
-            ${Math.abs(res.plain.E - res.min.E) < 1e-6 ? '– gleich gut.' : `<b>✗ schlechter</b>. Um einen Auftrag zu verschieben, müssen zwei Bits kippen – dazwischen liegt immer ein ungültiger Zustand, eine Barriere von etwa A.
-            Genau das macht große One-Hot-QUBOs für Annealer schwer.`}` }) : null),
+          res.plain ? el('div', { class: 'hint', html: `Nur Einzelbits (ohne Tausch-Züge): E = ${fmt(res.plain.E)}
+            ${Math.abs(res.plain.E - res.min.E) < 1e-6 ? '– gleich gut.' : `<b>✗ schlechter</b>: Ein Auftrag wechselt nur über zwei Bit-Kipps mit ungültigem Zwischenzustand – eine Barriere ≈ A.
+            Das macht große One-Hot-QUBOs für Annealer schwer.`}` }) : null),
         box(`Exaktes Optimum (${nf(exact?.count ?? 0)} Ablaufpläne aufgezählt, ≤ ${d.instance.slots} je Roboter)`,
           exact ? `${fmt(exact.value)} s` : '–',
           el('div', {}, exact ? describeSeq(seqMap(exact.sequences)) : 'kein gültiger Plan: mehr Aufträge als Plätze'),
@@ -616,7 +628,8 @@ export function renderSequence(root, { run, api, params }) {
             : `Ohne Platzgrenze wäre ${fmt(free.value)} s möglich (${describeSeq(seqMap(free.sequences))}) – mehr Plätze, mehr Qubits.`)),
         box('Zum Vergleich: Sofortzuweisung (K = 1)', ia ? `${fmt(ia.value)} s` : 'unlösbar',
           el('div', {}, ia ? `${describeSeq(seqMap(ia.sequences))}${exact && ia.value > exact.value + 1e-6 ? ` – mit Reihenfolge ${fmt(ia.value - exact.value)} s besser` : ''}`
-            : 'Mehr Aufträge als freie Roboter: Ohne Reihenfolge bleibt ein Auftrag liegen.'))),
+            : 'Ein Auftrag ohne möglichen Roboter.'),
+          el('div', { class: 'hint' }, 'Doppelbelegung zulässig, Aufträge eines Roboters in Anfrage-Reihenfolge.'))),
       el('h4', {}, res.exhaustive ? 'Die günstigsten Zustände' : 'Die besten gefundenen Zustände'),
       el('div', { class: 'table-scroll' }, el('table', { class: 'data' },
         el('thead', {}, el('tr', {}, el('th', { class: 'num' }, 'Platz'), el('th', { class: 'num' }, 'Energie'), el('th', {}, 'Ablauf'), el('th', {}, 'Regeln'))),
@@ -633,13 +646,13 @@ export function renderSequence(root, { run, api, params }) {
 
   function renderSweepHost(n) {
     if (n > SWEEP_MAX_BITS) {
-      fill(sweepHost, el('p', { class: 'hint' }, `Wie groß müssen A, B und D sein? Die Schwellen werden bis ${SWEEP_MAX_BITS} Schalter durch Durchprobieren berechnet – hier sind es ${n}.`));
+      fill(sweepHost, el('p', { class: 'hint' }, `Schwellen für A, B und D nur bis ${SWEEP_MAX_BITS} Schalter (hier ${n}).`));
       return;
     }
     const btn = el('button', { class: 'btn small', type: 'button', onclick: () => { st.sweep = computeSweeps(); renderSweepHost(n); } }, 'Schwellen für A, B, D berechnen');
     if (!st.sweep) {
-      fill(sweepHost, el('h4', {}, 'Wie groß müssen A, B und D sein?'),
-        el('p', { class: 'hint' }, 'Für jedes Strafgewicht wird es von 0 an erhöht (die anderen bleiben), bis das Minimum ein gültiger Plan ist.'), btn);
+      fill(sweepHost, el('h4', {}, 'Wie groß müssen die Strafgewichte sein?'),
+        el('p', { class: 'hint' }, 'Je Gewicht von 0 an erhöhen (die anderen fest), bis das Minimum gültig ist.'), btn);
       return;
     }
     const rows = st.sweep.map((s) => el('tr', {},
@@ -647,16 +660,17 @@ export function renderSequence(root, { run, api, params }) {
       el('td', { class: 'num' }, nf(st[s.key])),
       el('td', {}, s.threshold == null ? 'im gezeigten Bereich nie gültig' : s.threshold === 0 ? 'für jedes Gewicht gültig – hier nicht nötig' : `gültig ab ≈ ${fmt(s.threshold)}`),
       el('td', { class: 'hint' }, s.threshold > 0 && s.below ? `darunter z.B. ${s.key} = ${fmt(s.below.val)}: ${describeSeq(s.below.seq)} (${s.below.issues})` : '')));
-    fill(sweepHost, el('h4', {}, 'Wie groß müssen A, B und D sein?'),
+    fill(sweepHost, el('h4', {}, 'Wie groß müssen die Strafgewichte sein?'),
       el('table', { class: 'data' }, el('thead', {}, el('tr', {}, el('th', {}, 'Gewicht'), el('th', { class: 'num' }, 'aktuell'), el('th', {}, 'Minimum gültig'), el('th', {}, 'Was ohne sie passiert'))),
         el('tbody', {}, rows)),
-      el('p', { class: 'hint' }, 'Eine Regel mit „für jedes Gewicht gültig“ wird in diesem Szenario nie gebraucht – die Kosten halten sie schon ein. Für die Garantie bleibt sie trotzdem drin; sie kostet Kopplungen. Beispiel: Bei der Summe der Erledigungszeiten macht die Dreiecksungleichung Lücken meist unattraktiv – bei der Summe der Arbeitszeiten nicht.'),
+      el('p', { class: 'hint' }, '„Für jedes Gewicht gültig“: hier halten die Kosten die Regel schon ein – sie bleibt für die Garantie (kostet Kopplungen). Beispiel: Bei Erledigungszeiten macht die Dreiecksungleichung Lücken meist unattraktiv, bei Arbeitszeiten nicht.'),
       btn);
   }
 
   function computeSweeps() {
     const out = [];
     for (const [kind, key] of Object.entries(WEIGHT)) {
+      if (kind !== 'zeile' && st.data.instance.slots < 2) continue; // K = 1: nur die Zeilenregel
       const top = Math.max(st.data.weights[key], st[key]) * 1.5;
       const pts = [];
       for (let k = 0; k <= 30; k += 1) {
@@ -698,9 +712,8 @@ export function renderSequence(root, { run, api, params }) {
           el('td', { class: 'num' }, `${e.exact ? '' : '≈ '}${nf(e.qubits)}`),
           el('td', { class: 'num' }, e.couplings == null ? 'dicht' : `${e.exact ? '' : '≈ '}${nf(e.couplings)}`),
           el('td', { style: { whiteSpace: 'normal' } }, e.note)))))),
-      el('p', { class: 'hint', html: `Sofortzuweisung und Plätze sind exakt gezählt (Kopplungen strukturell, bei den Standardgewichten). Zeitraster und explizite Zeiten sind
-        <b>Abschätzungen</b> für dieselben Aufträge – sie zeigen, warum die Platz-Variablen der sparsamste exakte Weg sind: Die Zahl der Qubits hängt nicht von der Zeitauflösung ab,
-        nur von Aufträgen × Robotern × Plätzen.` }));
+      el('p', { class: 'hint', html: `Sofortzuweisung und Plätze exakt gezählt (Kopplungen strukturell, Standardgewichte); Zeitraster und explizite Zeiten sind <b>Abschätzungen</b>.
+        Platz-Variablen sind der sparsamste exakte Weg: Qubits = Aufträge × Roboter × Plätze, unabhängig von der Zeitauflösung.` }));
   }
 
   // ---------------------------------------------------------------- Hervorheben

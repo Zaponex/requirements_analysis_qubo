@@ -1,14 +1,17 @@
-// Reiter „Kodierungen“ › One-Hot: die Formulierung Schritt für Schritt an echten Aufträgen erleben.
+// Reiter „Kodierungen TA“ › One-Hot: die Formulierung Schritt für Schritt an echten Aufträgen erleben.
+// Ohne Spaltenregel: Ein Roboter darf mehrere Aufträge übernehmen (Sofortzuweisung mit Spaltenregel: views/iaOnehot.js).
 // Schalter anklicken, Regeln zuschalten, Strafgewichte verschieben – jede Energie-Zahl wird erklärt.
 import { el, fill, nf, withTip, tipHtml, escapeHtml } from '../util.js';
 import {
   C, TERM_COLORS, TERM_LABELS, TERM_ORDER, TERM_SHORT, areaColor, areaLabel, plot, statusColor, statusLabel,
 } from '../theme.js';
 import { createLayoutMap } from '../components/layoutMap.js';
+import { autoWeights, createWeightControls, weightsFromParams } from '../components/weightControls.js';
 import { initialScenario, renderScenario, shortName } from '../components/scenario.js';
 import { MAX_SEARCH_BITS, MAX_STORE_BITS, energy, fromMask, makeModel, rankOf, search, toMask } from '../qubo/engine.js';
 import { createMatrixView } from '../qubo/matrixView.js';
 import { createGraphView } from '../qubo/graphView.js';
+import { createLandscape } from '../components/landscape.js';
 import { DEFAULT_FORMULA_TAB, createFormulaPanel } from './onehotFormula.js';
 import { createCriterionPanel, formulaHtml, niceCeil } from './onehotCriterion.js';
 
@@ -17,8 +20,7 @@ const STEPS = [
   { title: 'Schalter', terms: {} },
   { title: 'Kosten', terms: { kosten: true } },
   { title: 'Zeilenregel', terms: { kosten: true, zeile: true } },
-  { title: 'Spaltenregel', terms: { kosten: true, zeile: true, spalte: true } },
-  { title: 'QUBO & Hardware', terms: { kosten: true, zeile: true, spalte: true } },
+  { title: 'QUBO & Hardware', terms: { kosten: true, zeile: true } },
 ];
 const SUB = '₀₁₂₃₄₅₆₇₈₉';
 const sub = (s) => String(s).replace(/\d/g, (d) => SUB[d]);
@@ -27,12 +29,11 @@ const fmtE = (v) => nf(v, 1).replace('-', '−');
 export function renderOneHot(root, { run, api, params }) {
   const tasks = run.tasks;
   const st = {
-    step: Math.min(6, Math.max(1, Number(params.schritt) || 1)),
+    step: Math.min(STEPS.length, Math.max(1, Number(params.schritt) || 1)),
     showAll: false,
     ...initialScenario(tasks, params), // start, window, selected – auch per Link ?auftraege=1,2,3
     mode: 'kandidaten',
     A: 50,
-    B: 50,
     terms: { ...STEPS[0].terms },
     data: null,
     x: new Uint8Array(0),
@@ -54,6 +55,9 @@ export function renderOneHot(root, { run, api, params }) {
   const quickHost = el('div', { class: 'quick' });
   const energyHost = el('div');
   const controlsHost = el('div');
+  const togglesHost = el('div');
+  const weightsHost = el('div');
+  controlsHost.append(togglesHost, weightsHost); // Gewichte bleiben stehen, damit ein Eingabefeld beim Tippen den Fokus behält
   const rankHost = el('div');
   const stripHost = el('div', { class: 'chart short' });
   const matrixHost = el('div');
@@ -61,6 +65,8 @@ export function renderOneHot(root, { run, api, params }) {
   const metricsHost = el('div');
   const formulaHost = el('div');
   const criterionHost = el('div');
+  const normHost = el('div');
+  const landHost = el('div');
 
   const section = (minStep, node) => {
     node.dataset.minStep = String(minStep);
@@ -72,9 +78,9 @@ export function renderOneHot(root, { run, api, params }) {
 
   root.append(el('p', {
     class: 'intro',
-    html: `Hier wird aus echten Aufträgen deines Laufs Schritt für Schritt eine <strong>One-Hot-QUBO</strong>. Geh die Schritte
-      der Reihe nach durch – jeder deckt eine neue Zutat auf. Alle Zahlen sind live: Schalter anklicken, Regeln an- und
-      abschalten, Strafgewichte verschieben. Die Lese-Version mit Hintergrund steht in <code>encodings/one_hot/README.md</code>.`,
+    html: `Aus echten Aufträgen entsteht Schritt für Schritt eine <strong>One-Hot-QUBO</strong> – alles live: Schalter klicken,
+      Regeln schalten, Gewichte ändern. Ohne Spaltenregel: Ein Roboter darf mehrere Aufträge übernehmen –
+      jeder höchstens einer: <a href="#/ia/one-hot">Kodierungen IA</a>. Lesekapitel: <code>encodings/one_hot/README.md</code>.`,
   }));
   root.append(el('section', { class: 'card guide' }, stepper,
     el('label', { class: 'filter-group', for: 'oh-all', style: { marginTop: '6px' } }, showAllBox, el('span', { class: 'hint' }, 'Alles auf einmal zeigen')),
@@ -82,24 +88,28 @@ export function renderOneHot(root, { run, api, params }) {
 
   const layout = el('div', { class: 'grid', style: { marginTop: '16px' } },
     el('div', { class: 'grid grid-2' },
-      cardEl('Szenario: welche Aufträge?', 'Ein echter Moment aus der Simulation', scenarioBody),
-      cardEl('Lage in der Fabrik', 'Roboter im Snapshot · <b>#</b> = Abholort eines Auftrags · dunkle Linie = eingeschalteter Schalter', mapHost)),
+      cardEl('Szenario', 'Echter Moment der Simulation', scenarioBody),
+      cardEl('Lage in der Fabrik', 'Roboter im Snapshot · <b>#</b> = Abholort · dunkle Linie = Schalter an', mapHost)),
     section(2, el('div', { class: 'grid oh-main' },
-      cardEl('Schachbrett der Schalter', 'Zeile = Auftrag, Spalte = Roboter · Klick schaltet x = 0 ↔ 1 · kleine Zahl = Kosten <i>c</i><sub>t,r</sub> nach dem gewählten Kriterium', quickHost, boardHost),
-      section(3, cardEl('Energie dieses Zustands', 'Jeder Beitrag einzeln erklärt', controlsHost, energyHost)))),
-    section(3, cardEl('Bewertungskriterium: Wonach bewertet das QUBO?', 'Bestimmt die Zahl <i>c</i><sub>t,r</sub> jedes Schalters – sie landet auf der Diagonale der QUBO-Matrix', criterionHost)),
-    section(3, cardEl('Die Formel dahinter', 'Wie die mathematische Formulierung wirkt – und wie die Zahlen eingesetzt werden · über Formelteile fahren hebt die Schalter hervor', formulaHost)),
-    section(3, cardEl('Die günstigsten Zustände', 'Alle Schalterstellungen durchprobiert und nach Energie sortiert · Zeile anklicken zum Laden', rankHost, stripHost)),
-    section(6, el('div', { class: 'grid grid-2' },
-      cardEl('QUBO-Matrix', 'Jede Zahl ist eine Summe aus Kosten, Zeilen- und Spaltenregel · Hover erklärt · umrandet = zählt gerade', matrixHost),
-      cardEl('Kopplungsgraph & Hardware-Bedarf', 'Knoten = Qubits, Linien = Kopplungen · dicke Linie = beide Schalter an', graphHost, metricsHost))));
+      cardEl('Schachbrett der Schalter', 'Zeile = Auftrag, Spalte = Roboter · Klick: x 0 ↔ 1 · kleine Zahl = Kosten <i>c</i><sub>t,r</sub>', quickHost, boardHost),
+      section(3, cardEl('Energie dieses Zustands', 'Jeder Beitrag einzeln', controlsHost, energyHost)))),
+    section(3, el('div', { class: 'grid grid-2' },
+      cardEl('QUBO-Matrix', 'Summe aus Kosten und Zeilenregel · Hover erklärt · umrandet = zählt jetzt', matrixHost),
+      cardEl('Kopplungsgraph & Hardware', 'Knoten = Qubits, Linien = Kopplungen · dick = beide an', graphHost, metricsHost))),
+    section(3, el('div', { class: 'grid grid-2' },
+      cardEl('Normierte QUBO-Matrix', 'Q / max|Q| · blau = Belohnung, rot = Strafe', normHost),
+      cardEl('Energielandschaft', 'Alle Zustände als Fläche · Ziehen dreht, Scrollen zoomt', landHost))),
+    section(3, cardEl('Bewertungskriterium', 'Bestimmt <i>c</i><sub>t,r</sub> – die Diagonale der QUBO', criterionHost)),
+    section(3, cardEl('Die Formel dahinter', 'Hover über Formelteile hebt die Schalter hervor', formulaHost)),
+    section(3, cardEl('Die günstigsten Zustände', 'Alle Stellungen nach Energie · Klick lädt', rankHost, stripHost)));
   root.append(layout);
 
   const map = createLayoutMap(mapHost, { entities: run.entities, robots: run.robots, entityLabels: false });
+  const landscape = createLandscape(normHost, landHost);
   let matrixView = null;
   let graphView = null;
   const formula = createFormulaPanel(formulaHost, {
-    getState: () => ({ data: st.data, x: st.x, A: st.A, B: st.B, terms: st.terms, step: st.step, model: st.model,
+    getState: () => ({ data: st.data, x: st.x, A: st.A, B: 0, terms: st.terms, step: st.step, model: st.model,
       criterion: st.data?.instance.criterion }),
     highlight: (sel) => highlightBoard(sel),
     clearHighlight: () => highlightBoard(null),
@@ -108,13 +118,19 @@ export function renderOneHot(root, { run, api, params }) {
     describe: (x) => describeState(x),
   });
   if (DEFAULT_FORMULA_TAB[st.step]) formula.setTab(DEFAULT_FORMULA_TAB[st.step], false);
+  // Gewichte per Link (?A=80&B=40) haben Vorrang vor der automatischen Anpassung
+  if (weightsFromParams(params, st, ['A'])) st.adjustWeights = false;
+  const weights = createWeightControls(weightsHost, { onChange: (key, value) => { st[key] = value; scheduleUpdate(); } });
+  /** Empfehlung für A: 1,5 × größte Kosten – A muss die billigste Zuweisung jedes Auftrags überbieten. */
+  const recommended = () => niceCeil(Math.max(10, 1.5 * Math.max(0, ...st.data.instance.variables.map((v) => v.cost))));
+  let lastScenario = null;
   const criterionPanel = createCriterionPanel(criterionHost, {
     getState: () => ({ data: st.data, weightNote: st.weightNote, selected: st.selected }),
     setCriterion: (key) => { st.criterion = key; st.adjustWeights = true; load(); },
     setParam: (key, value) => { st.costParams = { ...st.costParams, [key]: value }; st.adjustWeights = true; load(); },
     resetParams: () => { st.costParams = {}; st.adjustWeights = true; load(); },
   });
-  // Register per Link: #/kodierungen/one-hot?schritt=4&formel=qubo
+  // Register per Link: #/ta/one-hot?schritt=4&formel=qubo
   if (['formel', 'eingesetzt', 'qubo', 'wirkung'].includes(params.formel)) formula.setTab(params.formel, false);
 
   // ---------------------------------------------------------------- Szenario-Auswahl
@@ -122,7 +138,7 @@ export function renderOneHot(root, { run, api, params }) {
     const snap = st.data ? st.data.instance.snapshot : null;
     renderScenario(scenarioBody, {
       tasks, st, load, error,
-      note: snap ? `Vereinfachung fürs Lernen: Alle gewählten Aufträge sehen die Flotte im Snapshot von Anfrage #${snap.transport_id} (t = ${nf(snap.time)} s). Wie echte Zuweisungsprobleme aus dem Log geschnitten werden, ist eine offene Frage für Stufe 2.` : null,
+      note: snap ? `Vereinfachung: Alle Aufträge sehen die Flotte von Anfrage #${snap.transport_id} (t = ${nf(snap.time)} s). Wie echte Teilprobleme aus dem Log geschnitten werden, ist offen (Stufe 2).` : null,
     });
   }
 
@@ -137,21 +153,24 @@ export function renderOneHot(root, { run, api, params }) {
       return;
     }
     const n = st.data.formulation.n;
-    // Strafgewichte an den Kostenbereich anpassen, wenn Kriterium oder Annahmen geändert wurden
-    if (st.adjustWeights) {
-      st.adjustWeights = false;
+    // Strafgewichte an den Kostenbereich anpassen, wenn Kriterium, Annahmen oder Aufträge geändert wurden –
+    // nur, solange die Automatik an ist (sonst bleiben deine Werte stehen)
+    const scenario = `${st.selected}|${st.mode}`;
+    if (lastScenario !== null && scenario !== lastScenario) st.adjustWeights = true;
+    lastScenario = scenario;
+    if (st.adjustWeights && autoWeights()) {
       const maxC = Math.max(0, ...st.data.instance.variables.map((v) => v.cost));
-      st.A = niceCeil(Math.max(10, 1.5 * maxC));
-      st.B = st.A;
-      st.weightNote = `A und B wurden an den Kostenbereich angepasst: 1,5 × größte Kosten (${nf(maxC, 1)}) → ${nf(st.A)}.`;
+      st.A = recommended();
+      st.weightNote = `A an den Kostenbereich angepasst: 1,5 × größte Kosten (${nf(maxC, 1)}) → ${nf(st.A)}.`;
     } else {
       st.weightNote = '';
     }
+    st.adjustWeights = false;
     const prevX = st.x;
     st.x = new Uint8Array(n);
     if (prevX.length === n) st.x.set(prevX); // gleiche Schalter (nur Kriterium geändert) → Zustand behalten
     st.resultKey = '';
-    // Startzustand per Link: #/kodierungen/one-hot?schritt=5&zustand=gierig|minimum (nur beim ersten Laden)
+    // Startzustand per Link: #/ta/one-hot?schritt=5&zustand=gierig|minimum (nur beim ersten Laden)
     if (params.zustand && !st.initialStateApplied) {
       st.initialStateApplied = true;
       if (params.zustand === 'gierig') st.x = greedy();
@@ -177,7 +196,6 @@ export function renderOneHot(root, { run, api, params }) {
   const vars = () => st.data.instance.variables;
   const crit = () => st.data.instance.criterion;
   const unit = () => crit().unit;
-  const sliderMax = () => Math.max(200, niceCeil(4 * Math.max(0, ...vars().map((v) => v.cost))), st.A, st.B);
   const taskOf = (id) => st.data.instance.tasks.find((t) => t.transport_id === id);
   const robotOf = (id) => st.data.instance.robots.find((r) => r.robot_id === id);
   function varLabel(i) {
@@ -208,13 +226,16 @@ export function renderOneHot(root, { run, api, params }) {
       const on = idx.filter((i) => x[i]).length;
       if (on !== 1) out.push({ kind: 'zeile', task: t.transport_id, on, possible: idx.length > 0 });
     }
-    for (const r of st.data.instance.robots) {
-      const on = vars().filter((v, i) => v.robot_id === r.robot_id && x[i]).length;
-      if (on > 1) out.push({ kind: 'spalte', robot: r.robot_id, on });
-    }
-    return out;
+    return out; // Doppelbelegung ist zulässig – kein Verstoß
   }
   const isValid = (x) => violations(x).length === 0;
+  const valid4 = (m) => Boolean(m && isValid(m.x));
+  /** Aufträge je Roboter (Doppelbelegung ist zulässig). */
+  function robotLoads(x) {
+    const by = new Map();
+    vars().forEach((v, i) => { if (x[i]) by.set(v.robot_id, [...(by.get(v.robot_id) || []), v.task_id]); });
+    return [...by].map(([robot, ts]) => ({ robot, tasks: ts }));
+  }
   function violationText(v) {
     if (v.kind === 'zeile') {
       if (!v.possible) return `#${v.task}: kein freier Roboter – Regel nicht erfüllbar`;
@@ -235,8 +256,8 @@ export function renderOneHot(root, { run, api, params }) {
   // ---------------------------------------------------------------- Rechnen
   function compute() {
     const form = st.data.formulation;
-    st.model = makeModel(form, { A: st.A, B: st.B, terms: st.terms });
-    const key = `${st.A}|${st.B}|${TERM_ORDER.map((k) => (st.terms[k] ? 1 : 0)).join('')}|${form.n}|${st.selected}|${st.mode}`;
+    st.model = makeModel(form, { A: st.A, B: 0, terms: st.terms });
+    const key = `${st.A}|${TERM_ORDER.map((k) => (st.terms[k] ? 1 : 0)).join('')}|${form.n}|${st.selected}|${st.mode}`;
     if (key !== st.resultKey) {
       st.result = search(st.model, 12);
       st.resultKey = key;
@@ -244,7 +265,7 @@ export function renderOneHot(root, { run, api, params }) {
   }
 
   function minUnder(terms) {
-    const m = makeModel(st.data.formulation, { A: st.A, B: st.B, terms });
+    const m = makeModel(st.data.formulation, { A: st.A, B: 0, terms });
     const r = search(m, 1);
     return r ? { x: fromMask(r.min.mask, m.n), E: r.min.E } : null;
   }
@@ -261,10 +282,12 @@ export function renderOneHot(root, { run, api, params }) {
     renderControls();
     renderEnergy();
     renderRanking();
-    if (st.step >= 6 || st.showAll) {
+    if (st.step >= 3 || st.showAll) {
       matrixView.update(st.model, st.x);
       graphView.update(st.model, st.x);
       renderMetrics();
+      landscape.update({ model: st.model, labels: vars().map((v, i) => varLabel(i)), x: st.x, cacheKey: st.result,
+        minX: st.result ? fromMask(st.result.min.mask, vars().length) : null, isValid });
     }
     if (st.step >= 3 || st.showAll) {
       criterionPanel.render();
@@ -284,7 +307,7 @@ export function renderOneHot(root, { run, api, params }) {
     st.step = k;
     st.terms = { ...STEPS[k - 1].terms };
     if (DEFAULT_FORMULA_TAB[k]) formula.setTab(DEFAULT_FORMULA_TAB[k], false);
-    if (st.showAll) st.terms = { kosten: true, zeile: true, spalte: true };
+    if (st.showAll) st.terms = { kosten: true, zeile: true };
     update();
   }
   function applyVisibility() {
@@ -303,57 +326,40 @@ export function renderOneHot(root, { run, api, params }) {
     const perTask = d.tasks.map((t) => `#${t.transport_id}: ${vars().filter((v) => v.task_id === t.transport_id).length}`).join(', ');
     const cmin = nVars ? Math.min(...vars().map((v) => v.cost)) : 0;
     const noCand = d.tasks.filter((t) => !vars().some((v) => v.task_id === t.transport_id));
-    const next = st.step < 6 ? ` <button class="btn small primary" type="button" data-next>Weiter: ${st.step + 1} · ${STEPS[st.step].title} →</button>` : '';
+    const next = st.step < STEPS.length ? ` <button class="btn small primary" type="button" data-next>Weiter: ${st.step + 1} · ${STEPS[st.step].title} →</button>` : '';
     let html = '';
     if (st.step === 1) {
-      html = `Im gewählten Moment liegen <b>${T} Auftrag${T === 1 ? '' : 'e'}</b> vor (${d.tasks.map((t) => `#${t.transport_id}`).join(', ')}).
-        Im Flotten-Snapshot sind <b>${free.length} von ${d.robots.length} Robotern frei</b>${free.length ? ` (${free.map((r) => `R${r.robot_id}`).join(', ')})` : ''}.
-        Die Frage an den Optimierer: <b>Welcher Roboter übernimmt welchen Auftrag, damit ${escapeHtml(crit().goal)}?</b>
-        <span class="hint">(Kriterium: ${escapeHtml(crit().label)} – wählbar ab Schritt 3)</span>
-        ${T > free.length ? `<br><span class="warnline">⚠ Mehr Aufträge als freie Roboter – keine Zuweisung kann alle Regeln erfüllen. Spannend für Schritt 5.</span>` : ''}`;
+      html = `<b>${T} Auftrag${T === 1 ? '' : 'e'}</b> (${d.tasks.map((t) => `#${t.transport_id}`).join(', ')}),
+        <b>${free.length} von ${d.robots.length} Robotern frei</b>${free.length ? ` (${free.map((r) => `R${r.robot_id}`).join(', ')})` : ''}.
+        Frage: <b>Welcher Roboter übernimmt welchen Auftrag, damit ${escapeHtml(crit().goal)}?</b>
+        <span class="hint">(Kriterium ${escapeHtml(crit().label)}, wählbar ab Schritt 3)</span>
+        ${T > free.length ? '<br>Mehr Aufträge als freie Roboter – zulässig: Ein Roboter übernimmt dann mehrere.' : ''}`;
     } else if (st.step === 2) {
-      html = `Ein Quantenoptimierer versteht keine Frage, nur <b>Bits</b>. Deshalb bekommt <b>jede Kombination aus Auftrag und möglichem Roboter einen Schalter</b>
-        x<sub>t,r</sub>: „Roboter r übernimmt Auftrag t“ (1 = ja, 0 = nein). Hier: ${perTask} → <b>${nVars} Schalter = ${nVars} Qubits</b>.
-        ${st.mode === 'kandidaten' ? 'Belegte Roboter bekommen gar keinen Schalter (grau) – das hält das Problem klein.' : 'Auch belegte Roboter bekommen einen Schalter – das Problem wird größer.'}
-        Klick im Schachbrett Schalter an und schau in der Karte, welche Fahrt das wäre. <b>Noch gibt es keine Bewertung</b> – der Rechner weiß nicht, was „gut“ ist.`;
+      html = `Ein Optimierer versteht nur <b>Bits</b>: je Auftrag × möglichem Roboter ein Schalter x<sub>t,r</sub> („r fährt t“, 1 = ja).
+        Hier ${perTask} → <b>${nVars} Qubits</b>. ${st.mode === 'kandidaten' ? 'Belegte Roboter: kein Schalter (grau).' : 'Auch belegte Roboter bekommen Schalter – mehr Qubits.'}
+        Die Karte zeigt die Fahrt jedes Schalters. <b>Noch fehlt die Bewertung.</b>`;
     } else if (st.step === 3) {
       const m3 = minUnder({ kosten: true });
-      html = `Jetzt bekommt jeder Schalter einen <b>Preis <i>c</i><sub>t,r</sub></b> – nach dem Kriterium <b>${escapeHtml(crit().label)}</b>
-        (${escapeHtml(crit().en)}, in ${escapeHtml(unit())}): ${formulaHtml(crit().formula)}. Das ist die kleine Zahl im Schachbrett.
-        Welches Kriterium gilt und woraus sich die Zahl zusammensetzt, stellst du unten unter <b>„Bewertungskriterium“</b> ein.
-        Die <b>Energie</b> ist die Summe der Preise aller eingeschalteten Schalter – der Optimierer sucht die niedrigste.
-        Nur mit Kosten ergibt das über alle ${nf(2 ** nVars)} Stellungen: <b>${m3 ? describeState(m3.x) : '–'}</b>, E = ${m3 ? fmtE(m3.E) : '–'}.
-        Natürlich: Ohne Regeln ist <b>alles aus</b> am billigsten – <b>niemand fährt</b>. Kosten allein reichen nicht. Wir brauchen Regeln.`;
+      html = `Jeder Schalter bekommt einen <b>Preis <i>c</i><sub>t,r</sub></b> nach <b>${escapeHtml(crit().label)}</b>
+        (${escapeHtml(crit().en)}, ${escapeHtml(unit())}): ${formulaHtml(crit().formula)} – die kleine Zahl im Schachbrett, einstellbar unter „Bewertungskriterium“.
+        <b>Energie</b> = Summe der Preise eingeschalteter Schalter. Minimum über alle ${nf(2 ** nVars)} Stellungen:
+        <b>${m3 ? describeState(m3.x) : '–'}</b>, E = ${m3 ? fmtE(m3.E) : '–'} – <b>niemand fährt</b>. Kosten allein reichen nicht.`;
     } else if (st.step === 4) {
       const m = minUnder({ kosten: true, zeile: true });
       const v = m ? violations(m.x) : [];
-      const dbl = v.filter((x) => x.kind === 'spalte');
       const none = v.filter((x) => x.kind === 'zeile' && x.on === 0 && x.possible);
-      html = `Regel 1: <b>Jeder Auftrag braucht genau einen Roboter.</b> Pro Auftrag kommt die Strafe <b>A·(1 − Anzahl Schalter in der Zeile)²</b> dazu:
-        genau einer → 0, keiner oder zwei → mindestens A. Mit A = ${nf(st.A)} ist das Minimum jetzt <b>${m ? describeState(m.x) : '–'}</b> (E = ${m ? fmtE(m.E) : '–'}).
-        ${none.length ? `<br><span class="warnline">⚠ A = ${nf(st.A)} ist zu klein gegenüber den Kosten (günstigste Zuweisung: ${fmtE(cmin)} ${escapeHtml(unit())}) – einen Auftrag liegen zu lassen ist billiger. Schieb A nach oben!</span>` : ''}
-        ${dbl.length ? `<br><span class="warnline">⚠ Aber: ${dbl.map((x) => `R${x.robot} hat ${x.on} Aufträge`).join(', ')} – das verbietet noch niemand. Weiter zur Spaltenregel.</span>` : ''}
-        ${!none.length && !dbl.length ? '<br>Jeder Auftrag hat seinen Roboter – und es gibt hier zufällig keinen Konflikt.' : ''}`;
-    } else if (st.step === 5) {
-      const m = minUnder({ kosten: true, zeile: true, spalte: true });
-      const g = greedy();
-      const gv = violations(g).filter((x) => x.kind === 'spalte');
-      const valid = m && isValid(m.x);
-      html = `Regel 2: <b>Kein Roboter bekommt zwei Aufträge.</b> Für jedes Paar von Schaltern in derselben Spalte gibt es die Strafe <b>B·x·x′</b> –
-        sie greift nur, wenn beide an sind. ${gv.length ? `„Jeder nimmt seinen nächsten“ (${describeState(g)}) würde genau das verletzen: ${gv.map(violationText).join(', ')}.` : ''}
-        Mit A = ${nf(st.A)} und B = ${nf(st.B)} ist das Minimum <b>${m ? describeState(m.x) : '–'}</b> mit E = ${m ? fmtE(m.E) : '–'}
-        ${valid ? '<span class="okline">✓ alle Regeln erfüllt.</span>' : `<span class="warnline">✗ ${m ? violations(m.x).map(violationText).join(', ') : ''}</span>`}
-        ${!valid && T > free.length ? `<br>Es gibt mehr Aufträge als freie Roboter – irgendeine Regel muss brechen. Der Optimierer wählt den <b>billigsten Regelbruch</b>: Vergleiche A und B!
-          In Wirklichkeit würde ein Roboter zwei Aufträge <b>nacheinander</b> fahren – das kann die Sofortzuweisung nicht ausdrücken, dafür braucht es Hilfsvariablen:
-          <a href="#/kodierungen/reihenfolge?auftraege=${st.selected.join(',')}">One-Hot + Reihenfolge →</a>` : ''}
-        ${!valid && noCand.length ? `<br>${noCand.map((t) => `#${t.transport_id}`).join(', ')} hat keinen Schalter – seine Zeilenregel kostet immer A.` : ''}`;
+      const doubles = m ? robotLoads(m.x).filter((r) => r.tasks.length > 1) : [];
+      html = `Regel: <b>Jeder Auftrag genau ein Roboter</b> – Strafe <b>A·(1 − Σ Zeile)²</b>: genau einer → 0, sonst ≥ A.
+        Minimum bei A = ${nf(st.A)}: <b>${m ? describeState(m.x) : '–'}</b> (E = ${m ? fmtE(m.E) : '–'}) – je Auftrag der billigste Roboter.
+        ${none.length ? `<br><span class="warnline">⚠ A zu klein gegenüber der günstigsten Zuweisung (${fmtE(cmin)} ${escapeHtml(unit())}): Liegenlassen ist billiger – A erhöhen.</span>` : ''}
+        ${doubles.length ? `<br>${doubles.map((r) => `R${r.robot} übernimmt ${r.tasks.map((t) => `#${t}`).join(', ')}`).join(', ')} – <b>Doppelbelegung ist zulässig</b>.
+          Die Kosten zählen fest je Auftrag; dass der zweite erst nach dem ersten startet, bildet <a href="#/ta/reihenfolge?auftraege=${st.selected.join(',')}">One-Hot + Reihenfolge</a> ab.` : ''}
+        ${!valid4(m) && noCand.length ? `<br>${noCand.map((t) => `#${t.transport_id}`).join(', ')} hat keinen Schalter – seine Zeilenregel kostet immer A.` : ''}`;
     } else {
       const mc = metrics();
-      html = `Alles zusammen, ausmultipliziert, ist eine <b>QUBO-Matrix</b> mit <b>${mc.n} Variablen</b> und <b>${mc.couplings} Kopplungen</b>
-        (${mc.row} aus Zeilenregeln, ${mc.col} aus Spaltenregeln). Jede Kopplung heißt für die Hardware: Diese zwei Qubits müssen miteinander wechselwirken.
-        Fahre über Matrixzellen – jede Zahl ist eine Summe aus <span style="color:${TERM_COLORS.kosten}">Kosten</span>,
-        <span style="color:${TERM_COLORS.zeile}">Zeilenregel</span> und <span style="color:${TERM_COLORS.spalte}">Spaltenregel</span>.
-        Größter Koeffizient: <b>${fmtE(mc.maxCoef)}</b> – je größer A und B, desto feiner muss die Hardware die Zahlen einstellen können.`;
+      html = `Ausmultipliziert: eine <b>QUBO-Matrix</b> mit <b>${mc.n} Qubits</b> und <b>${mc.couplings} Kopplungen</b> – alle aus der
+        <span style="color:${TERM_COLORS.zeile}">Zeilenregel</span>, also nur innerhalb eines Auftrags. Ohne Spaltenregel sind die Aufträge <b>nicht gekoppelt</b>:
+        Die Matrix zerfällt in einen Block je Auftrag. Größter Koeffizient <b>${fmtE(mc.maxCoef)}</b>: je größer A, desto feiner muss die Hardware auflösen (→ normierte Matrix).`;
     }
     explain.innerHTML = `<div class="explain-title">Schritt ${st.step} · ${STEPS[st.step - 1].title}</div><div>${html}</div>${next ? `<div style="margin-top:8px">${next}</div>` : ''}`;
     const nb = explain.querySelector('[data-next]');
@@ -378,7 +384,7 @@ export function renderOneHot(root, { run, api, params }) {
     const d = st.data.instance;
     const idx = new Map(vars().map((v, i) => [`${v.task_id}|${v.robot_id}`, i]));
     const showRow = st.terms.zeile || st.step >= 4 || st.showAll;
-    const showCol = st.terms.spalte || st.step >= 5 || st.showAll;
+    const showCol = st.step >= 4 || st.showAll;
     const table = el('table', { class: 'board' },
       el('thead', {}, el('tr', {}, el('th', { class: 'corner' }, 'Auftrag ╲ Roboter'),
         d.robots.map((r) => el('th', { 'data-robot': r.robot_id }, el('div', {}, `R${r.robot_id}`),
@@ -407,9 +413,9 @@ export function renderOneHot(root, { run, api, params }) {
           }),
           showRow ? el('td', { class: `sum row-sum ${!possible ? 'bad' : on === 1 ? 'good' : 'bad'}`, 'data-task': t.transport_id }, `${on} ${on === 1 ? '✓' : '✗'}`) : null);
       })),
-      showCol ? el('tfoot', {}, el('tr', {}, el('th', {}, 'Σ Spalte'), d.robots.map((r) => {
+      showCol ? el('tfoot', {}, el('tr', {}, el('th', { title: 'Doppelbelegung ist zulässig' }, 'Aufträge je Roboter'), d.robots.map((r) => {
         const on = vars().filter((v, i) => v.robot_id === r.robot_id && st.x[i]).length;
-        return el('td', { class: `sum col-sum ${on <= 1 ? 'good' : 'bad'}`, 'data-robot': r.robot_id }, `${on} ${on <= 1 ? '✓' : '✗'}`);
+        return el('td', { class: 'sum col-sum', 'data-robot': r.robot_id }, String(on));
       }), showRow ? el('td') : null)) : null);
     boardHost.replaceChildren(el('div', { class: 'table-wrap' }, table));
 
@@ -421,9 +427,9 @@ export function renderOneHot(root, { run, api, params }) {
         ? el('button', { class: 'btn small primary', type: 'button', disabled: !st.result, title: 'Den Zustand mit der niedrigsten Energie laden',
           onclick: () => { st.x = fromMask(st.result.min.mask, vars().length); update(); } }, 'Minimum laden')
         : null,
-      el('a', { class: 'btn small', href: `#/kodierungen/baukasten?auftraege=${st.selected.join(',')}&plaetze=1&kriterium=${st.criterion}${st.mode === 'alle' ? '&modus=alle' : ''}`,
+      el('a', { class: 'btn small', href: `#/ta/baukasten?auftraege=${st.selected.join(',')}&plaetze=1&kriterium=${st.criterion}${st.mode === 'alle' ? '&modus=alle' : ''}`,
         title: 'Dieselben Aufträge im Formel-Baukasten: Regeln verändern, weglassen, falsch machen' }, 'Formel verändern → Baukasten'),
-      el('a', { class: 'btn small', href: `#/kodierungen/domain-wall?auftraege=${st.selected.join(',')}&kriterium=${st.criterion}&schritt=${st.step}`,
+      el('a', { class: 'btn small', href: `#/ta/domain-wall?auftraege=${st.selected.join(',')}&kriterium=${st.criterion}&schritt=${st.step}`,
         title: 'Dieselben Aufträge mit Domain Wall: R − 1 Bits je Auftrag, Kette statt Clique' }, 'Vergleich: Domain Wall →'));
   }
 
@@ -435,16 +441,12 @@ export function renderOneHot(root, { run, api, params }) {
         b.addEventListener('click', () => { st.terms[k] = !st.terms[k]; update(); });
         return b;
       }));
-    const slider = (name, key, color, minStep) => {
-      if (!(st.step >= minStep || st.showAll)) return null;
-      const input = el('input', { type: 'range', min: 0, max: sliderMax(), step: 1, value: st[key], 'aria-label': name });
-      const val = el('strong', { style: { color } }, nf(st[key]));
-      input.addEventListener('input', () => { st[key] = Number(input.value); val.textContent = nf(st[key]); scheduleUpdate(); });
-      return el('div', { class: 'slider-row' }, el('span', { class: 'filter-label', style: { minWidth: '150px' } }, name), input, val);
-    };
-    fill(controlsHost, toggles,
-      slider('Strafgewicht A (Zeile)', 'A', TERM_COLORS.zeile, 4),
-      slider('Strafgewicht B (Spalte)', 'B', TERM_COLORS.spalte, 5));
+    fill(togglesHost, toggles);
+    const rec = recommended();
+    const items = [];
+    if (st.step >= 4 || st.showAll) items.push({ key: 'A', label: 'A · Zeilenregel', color: TERM_COLORS.zeile, value: st.A, recommended: rec, hint: '> billigste Zuweisung eines Auftrags' });
+    weightsHost.hidden = !items.length;
+    if (items.length) weights.render({ items });
   }
   let pending = null;
   function scheduleUpdate() {
@@ -455,7 +457,7 @@ export function renderOneHot(root, { run, api, params }) {
   function renderEnergy() {
     if (!(st.step >= 3 || st.showAll)) return;
     const d = st.data.instance;
-    const parts = { kosten: [], zeile: [], spalte: [] };
+    const parts = { kosten: [], zeile: [] };
     vars().forEach((v, i) => { if (st.x[i]) parts.kosten.push({ v: v.cost, text: `#${v.task_id} → R${v.robot_id}: ${fmtE(v.cost)} ${unit()}` }); });
     for (const t of d.tasks) {
       const idx = vars().map((v, i) => (v.task_id === t.transport_id ? i : -1)).filter((i) => i >= 0);
@@ -463,13 +465,6 @@ export function renderOneHot(root, { run, api, params }) {
       const val = st.A * (1 - on) ** 2;
       const why = !idx.length ? 'kein Schalter möglich' : on === 0 ? 'niemand übernimmt' : on === 1 ? 'genau einer ✓' : `${on} Roboter fahren`;
       parts.zeile.push({ v: val, text: `#${t.transport_id}: ${on} an → A·(1−${on})² = ${fmtE(val)} · ${why}`, ok: on === 1 });
-    }
-    for (const r of d.robots) {
-      const on = vars().filter((v, i) => v.robot_id === r.robot_id && st.x[i]).length;
-      const n = vars().filter((v) => v.robot_id === r.robot_id).length;
-      if (n < 2) continue;
-      const pairs = on > 1 ? (on * (on - 1)) / 2 : 0;
-      parts.spalte.push({ v: st.B * pairs, text: `R${r.robot_id}: ${on} Auftr${on === 1 ? 'ag' : 'äge'} → ${pairs} Paar${pairs === 1 ? '' : 'e'} · B·${pairs} = ${fmtE(st.B * pairs)}`, ok: on <= 1 });
     }
     const sums = Object.fromEntries(TERM_ORDER.map((k) => [k, st.terms[k] ? parts[k].reduce((s, p) => s + p.v, 0) : 0]));
     const E = TERM_ORDER.reduce((s, k) => s + sums[k], 0);
@@ -484,7 +479,7 @@ export function renderOneHot(root, { run, api, params }) {
         el('span', {}, k === 'kosten' ? `Kosten: ${crit().label} [${unit()}]` : TERM_LABELS[k]), el('strong', {}, st.terms[k] ? fmtE(sums[k]) : 'aus')),
       parts[k].length
         ? el('ul', {}, parts[k].map((p) => el('li', { class: p.ok === false ? 'bad' : p.ok ? 'good' : '' }, p.text)))
-        : el('div', { class: 'hint' }, k === 'kosten' ? 'kein Schalter an – keine Kosten' : 'keine Paare in einer Spalte'));
+        : el('div', { class: 'hint' }, 'kein Schalter an – keine Kosten'));
 
     fill(energyHost, 
       el('div', { class: 'etotal' },
@@ -494,7 +489,7 @@ export function renderOneHot(root, { run, api, params }) {
           el('div', { class: valid ? 'okline' : 'warnline' }, valid ? '✓ gültige Zuweisung' : `✗ ${violations(st.x).map(violationText).join(' · ')}`))),
       bar,
       ...TERM_ORDER.map(group),
-      st.step >= 6 || st.showAll
+      st.step >= STEPS.length || st.showAll
         ? el('p', { class: 'hint' }, `Probe über die Matrix: xᵀQx + Konstante = ${fmtE(Eq)} ${Math.abs(Eq - E) < 1e-6 ? '✓ identisch' : '✗ ABWEICHUNG'}`)
         : null);
   }
@@ -503,7 +498,7 @@ export function renderOneHot(root, { run, api, params }) {
     if (!(st.step >= 3 || st.showAll)) return;
     const n = vars().length;
     if (!st.result) {
-      rankHost.replaceChildren(el('p', { class: 'hint' }, `${n} Schalter = ${nf(2 ** n)} Stellungen – zu viele zum Durchprobieren im Browser (Grenze: ${MAX_SEARCH_BITS} Schalter). Wähle weniger Aufträge.`));
+      rankHost.replaceChildren(el('p', { class: 'hint' }, `${n} Schalter = ${nf(2 ** n)} Stellungen – zu viele für den Browser (max. ${MAX_SEARCH_BITS}). Weniger Aufträge wählen.`));
       Plotly.purge(stripHost);
       return;
     }
@@ -549,16 +544,14 @@ export function renderOneHot(root, { run, api, params }) {
     } else {
       Plotly.purge(stripHost);
       stripHost.style.minHeight = '0';
-      stripHost.replaceChildren(el('p', { class: 'hint' }, `Die Energie-Treppe (alle Zustände als Diagramm) wird bis ${MAX_STORE_BITS} Schalter gezeigt – die Rangliste oben gilt trotzdem für alle ${nf(st.result.total)} Zustände.`));
+      stripHost.replaceChildren(el('p', { class: 'hint' }, `Energie-Treppe nur bis ${MAX_STORE_BITS} Schalter – die Rangliste gilt für alle ${nf(st.result.total)} Zustände.`));
     }
   }
 
   function metrics() {
     const offs = st.model.entries.filter((e) => e.i !== e.j && e.value !== 0);
-    const row = offs.filter((e) => e.activeParts[0]?.kind === 'zeile').length;
-    const col = offs.filter((e) => e.activeParts[0]?.kind === 'spalte').length;
     const coefs = st.model.entries.filter((e) => e.activeParts.length).map((e) => Math.abs(e.value));
-    return { n: vars().length, couplings: offs.length, row, col, maxCoef: coefs.length ? Math.max(...coefs) : 0 };
+    return { n: vars().length, couplings: offs.length, maxCoef: coefs.length ? Math.max(...coefs) : 0 };
   }
 
   function renderMetrics() {
@@ -566,7 +559,7 @@ export function renderOneHot(root, { run, api, params }) {
     const R = st.data.instance.robots.length;
     fill(metricsHost, el('div', { class: 'kpis', style: { marginTop: '10px' } },
       kpiSmall('Variablen (Qubits)', nf(mc.n), 'ein Schalter je Auftrag × möglichem Roboter'),
-      kpiSmall('Kopplungen', nf(mc.couplings), `${mc.row} Zeile · ${mc.col} Spalte`),
+      kpiSmall('Kopplungen', nf(mc.couplings), 'nur Zeilenregel – je Auftrag ein Block'),
       kpiSmall('Größter |Koeffizient|', fmtE(mc.maxCoef), 'bestimmt die nötige Präzision'),
       kpiSmall('Pro Auftrag bei R Robotern', `${R} / ${(R * (R - 1)) / 2}`, 'Variablen / Kopplungen der Clique (One-Hot)')),
     el('div', { class: 'legend' }, TERM_ORDER.slice(1).map((k) => el('span', { class: 'legend-item' },
@@ -596,7 +589,7 @@ export function renderOneHot(root, { run, api, params }) {
 
   showAllBox.addEventListener('change', () => {
     st.showAll = showAllBox.checked;
-    st.terms = st.showAll ? { kosten: true, zeile: true, spalte: true } : { ...STEPS[st.step - 1].terms };
+    st.terms = st.showAll ? { kosten: true, zeile: true } : { ...STEPS[st.step - 1].terms };
     update();
   });
 

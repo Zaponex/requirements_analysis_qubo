@@ -1,10 +1,12 @@
 """Tests der Domain-Wall-Formulierung (encodings/formulations.py: domain_wall & Co.).
 
 Kernaussagen:
-- Das Kapitel-Beispiel (encodings/domain_wall/README.md) wird exakt reproduziert.
+- Standard ohne Spaltenregel: Doppelbelegung zulässig, die Ketten sind nicht gekoppelt; mit A = 1,5 ×
+  Kostenspannweite ist das Minimum die beste Zuweisung (je Auftrag der billigste Roboter).
+- Das Kapitel-Beispiel (encodings/domain_wall/README.md, strengere Variante mit Spaltenregel) wird exakt
+  reproduziert; dort braucht es A = 2B, mit A = B oft nicht.
 - Regel-Energie == QUBO-Energie für alle Zustände.
 - Für gültige Ketten ist der Kosten-Term genau die Summe der Zuweisungskosten (Teleskopsumme).
-- Mit den Standardgewichten (A = 2B) ist das Minimum die beste gültige Zuweisung; mit A = B oft nicht.
 
 Aufruf (aus dem Projektordner):  python -m pytest tests
 """
@@ -53,10 +55,19 @@ def brute_min(form: dict, A: float, B: float) -> tuple[float, list[int]]:
     return float(E[k]), X[k].astype(int).tolist()
 
 
-def test_kapitel_beispiel(payload):
-    """Zahlen aus encodings/domain_wall/README.md: 6 Bits, 11 Kopplungen, Minimum 26, „jeder den nächsten“ 68."""
+def test_ohne_spaltenregel_sind_die_ketten_unabhaengig(payload):
     inst = build_instance(payload["tasks"], payload["fleet"], [1, 2], "kandidaten", "leerfahrt")
     form = domain_wall(inst)
+    assert form["n"] == 6 and sum(1 for e in form["entries"] if e["i"] != e["j"]) == 4  # nur Kettennachbarn
+    E, x = brute_min(form, dw_default_weights(inst)["A"], 0)
+    dec = decode_domain_wall(form, x)
+    assert E == 18 and dec["valid"] and dec["assignment"] == {1: 62, 2: 62}  # Doppelbelegung zulässig
+
+
+def test_kapitel_beispiel(payload):
+    """Zahlen aus encodings/domain_wall/README.md (mit Spaltenregel): 6 Bits, 11 Kopplungen, Minimum 26, „jeder den nächsten“ 68."""
+    inst = build_instance(payload["tasks"], payload["fleet"], [1, 2], "kandidaten", "leerfahrt")
+    form = domain_wall(inst, column_rule=True)
     assert form["n"] == 6
     assert sum(1 for e in form["entries"] if e["i"] != e["j"]) == 11
     # Teleskopsumme für #1: 35 − 25 b1 + 8 b2 + 31 b3
@@ -74,10 +85,11 @@ def test_kapitel_beispiel(payload):
 def test_regeln_und_matrix_stimmen_ueberein(payload, order, mode):
     for ids in ([1, 2], [1, 2, 3]):
         inst = build_instance(payload["tasks"], payload["fleet"], ids, mode, "erledigungszeit")
-        form = domain_wall(inst, order)
-        for x in itertools.product([0, 1], repeat=form["n"]):
-            for A, B in ((50, 50), (7, 90), (0, 0)):
-                assert energy_qubo(form, list(x), A, B) == pytest.approx(energy_rules_dw(form, list(x), A, B))
+        for column_rule in (False, True):
+            form = domain_wall(inst, order, column_rule)
+            for x in itertools.product([0, 1], repeat=form["n"]):
+                for A, B in ((50, 50), (7, 90), (0, 0)):
+                    assert energy_qubo(form, list(x), A, B) == pytest.approx(energy_rules_dw(form, list(x), A, B))
 
 
 def test_gueltige_ketten_kosten_genau_die_zuweisung(payload):
@@ -97,7 +109,8 @@ def test_gueltige_ketten_kosten_genau_die_zuweisung(payload):
 
 
 def test_standardgewichte_finden_die_beste_zuweisung():
-    """Über echte Momente beider Läufe: A = 2B trifft immer, A = B nicht immer (δ = −1 an falschen Wänden)."""
+    """Über echte Momente beider Läufe. Ohne Spaltenregel: A = 1,5 × Spannweite trifft immer.
+    Mit Spaltenregel: A = 2B trifft immer, A = B nicht immer (δ = −1 an falschen Wänden)."""
     service = DataService()
     checked, failures_equal = 0, 0
     for run in service.run_ids():
@@ -108,13 +121,16 @@ def test_standardgewichte_finden_die_beste_zuweisung():
         for ids in [ids[:4] for ids in by_time.values() if len(ids) >= 2][:6]:
             for criterion in ("leerfahrt", "erledigungszeit", "energie"):
                 inst = build_instance(p["tasks"], p["fleet"], ids, "alle", criterion)
-                best = best_assignment(inst)
+                free = domain_wall(inst)
+                if free["n"] > 16:
+                    continue
+                E, x = brute_min(free, dw_default_weights(inst)["A"], 0)
+                assert decode_domain_wall(free, x)["valid"] and E == pytest.approx(best_assignment(inst)["value"])
+                best = best_assignment(inst, distinct=True)
                 if best is None:
                     continue
-                form = domain_wall(inst)
-                if form["n"] > 16:
-                    continue
-                w = dw_default_weights(inst)
+                form = domain_wall(inst, column_rule=True)
+                w = dw_default_weights(inst, column_rule=True)
                 E, x = brute_min(form, w["A"], w["B"])
                 dec = decode_domain_wall(form, x)
                 assert dec["valid"] and E == pytest.approx(best["value"])
@@ -126,18 +142,19 @@ def test_standardgewichte_finden_die_beste_zuweisung():
 
 
 @pytest.mark.parametrize("ids", [[1, 2], [1, 2, 3], [1, 2, 3, 4], [1, 2, 3, 4, 5]])
-def test_kopplungen_wachsen_mit_konkurrierenden_auftraegen(payload, ids):
-    """T Aufträge, alle R Roboter: Domain Wall T(R−2) + Paare·(3R−5), One-Hot T·R(R−1)/2 + R·Paare.
-
-    Domain Wall spart je Auftrag ein Bit und in der Kette Kopplungen – aber zwei Ketten brauchen
-    3R − 5 Kopplungen (One-Hot nur R). Bei R = 4 ist Domain Wall nur bis T = 3 sparsamer.
+def test_kopplungen(payload, ids):
+    """T Aufträge, alle R Roboter. Ohne Spaltenregel: Domain Wall T(R−2), One-Hot T·R(R−1)/2 – Domain Wall
+    ist immer sparsamer. Mit Spaltenregel kommen Paare·(3R−5) bzw. R·Paare dazu; dann ist Domain Wall bei
+    R = 4 nur bis T = 3 sparsamer.
     """
     inst = build_instance(payload["tasks"], payload["fleet"], ids, "alle", "leerfahrt")
     T, R = len(ids), len(inst["robots"])
     pairs = T * (T - 1) // 2
-    dw, oh = domain_wall(inst), one_hot(inst)
     couplings = lambda f: sum(1 for e in f["entries"] if e["i"] != e["j"])  # noqa: E731
+    dw, oh = domain_wall(inst), one_hot(inst)
     assert dw["n"] == oh["n"] - T  # ein Bit weniger je Auftrag
+    assert couplings(dw) == T * (R - 2) and couplings(oh) == T * R * (R - 1) // 2
+    dw, oh = domain_wall(inst, column_rule=True), one_hot(inst, column_rule=True)
     assert couplings(dw) == T * (R - 2) + pairs * (3 * R - 5)
     assert couplings(oh) == T * R * (R - 1) // 2 + R * pairs
     assert (couplings(dw) < couplings(oh)) == (T <= 3)
@@ -161,6 +178,6 @@ def test_api_endpunkt(payload):
     assert ok.status_code == 200
     body = ok.json()
     assert body["formulation"]["n"] == 6 and body["one_hot"]["n"] == 8
-    assert body["best"]["value"] == 26
-    assert body["weights"]["A"] == 2 * body["weights"]["B"]
+    assert body["best"]["value"] == 18  # beide R62 – Doppelbelegung zulässig
+    assert body["weights"]["A"] > body["weights"]["spread"] and body["weights"]["B"] == 0
     assert client.get(f"/api/runs/{RUN}/domain-wall", params={"tasks": "1,2", "reihenfolge": "zufall"}).status_code == 400

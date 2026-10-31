@@ -37,6 +37,21 @@ def _parse(tasks: str, params: str) -> tuple[list[int], dict]:
     return ids, overrides
 
 
+def _ia(method, run_id: str, tasks: str, robots: str, variables: str, kriterium: str, params: str) -> dict:
+    """Gemeinsamer Ablauf der IA-Endpunkte: Aufträge, Roboter (leer = alle freien) und Parameter lesen."""
+    ids, overrides = _parse(tasks, params)
+    try:
+        robot_ids = [int(x) for x in robots.split(",") if x.strip()] or None
+    except ValueError:
+        raise HTTPException(400, "robots muss eine Komma-Liste von Roboternummern sein")
+    try:
+        return method(run_id, ids, robot_ids, variables, kriterium, overrides)
+    except KeyError:
+        raise HTTPException(404, f"Lauf {run_id} nicht gefunden")
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+
+
 def create_app(data_dir: str | Path | None = None) -> FastAPI:
     service = DataService(data_dir)
     app = FastAPI(title="QUBO-MRTA Lernlabor", docs_url="/api/docs", redoc_url=None)
@@ -76,6 +91,33 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
         except ValueError as exc:
             raise HTTPException(400, str(exc))
 
+    @app.get("/api/runs/{run_id}/ia/one-hot")
+    def get_ia_one_hot(run_id: str, tasks: str, robots: str = "", variables: str = "kandidaten",
+                       kriterium: str = "fahrstrecke", params: str = "") -> dict:
+        """Sofortzuweisung (IA) mit One-Hot – Fall T = R, T < R oder T > R ergibt sich aus Aufträgen und Robotern.
+
+        Beispiel: ?tasks=1,2,3&robots=61,62,63,64&kriterium=wartezeit   (robots leer = alle freien)
+        """
+        return _ia(service.ia_one_hot, run_id, tasks, robots, variables, kriterium, params)
+
+    @app.get("/api/runs/{run_id}/ia/domain-wall")
+    def get_ia_domain_wall(run_id: str, tasks: str, robots: str = "", variables: str = "kandidaten",
+                           kriterium: str = "fahrstrecke", params: str = "") -> dict:
+        """Sofortzuweisung (IA) mit Domain Wall – Ketten je Auftrag (T ≤ R) bzw. je Roboter (T > R).
+
+        Beispiel: ?tasks=1,2,3,4,5&robots=61,62&kriterium=fahrzeit   (robots leer = alle freien)
+        """
+        return _ia(service.ia_domain_wall, run_id, tasks, robots, variables, kriterium, params)
+
+    @app.get("/api/runs/{run_id}/ia/binary")
+    def get_ia_binary(run_id: str, tasks: str, robots: str = "", variables: str = "kandidaten",
+                      kriterium: str = "fahrstrecke", params: str = "") -> dict:
+        """Sofortzuweisung (IA) mit Binary – Code je Auftrag (T ≤ R) bzw. je Roboter (T > R), Hilfsbits ab Grad 3.
+
+        Beispiel: ?tasks=1,2,3&robots=61,62,63&kriterium=wartezeit   (robots leer = alle freien)
+        """
+        return _ia(service.ia_binary, run_id, tasks, robots, variables, kriterium, params)
+
     @app.get("/api/runs/{run_id}/domain-wall")
     def get_domain_wall(run_id: str, tasks: str, variables: str = "kandidaten", kriterium: str = "leerfahrt",
                         params: str = "", reihenfolge: str = "nummer") -> dict:
@@ -86,6 +128,21 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
         ids, overrides = _parse(tasks, params)
         try:
             return service.domain_wall(run_id, ids, variables, kriterium, overrides, reihenfolge)
+        except KeyError:
+            raise HTTPException(404, f"Lauf {run_id} nicht gefunden")
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
+
+    @app.get("/api/runs/{run_id}/binary")
+    def get_binary(run_id: str, tasks: str, variables: str = "kandidaten", kriterium: str = "leerfahrt",
+                   params: str = "", reihenfolge: str = "nummer") -> dict:
+        """Binary-Formulierung für gewählte Aufträge.
+
+        Beispiel: ?tasks=1,2&kriterium=leerfahrt&reihenfolge=nummer|kosten
+        """
+        ids, overrides = _parse(tasks, params)
+        try:
+            return service.binary(run_id, ids, variables, kriterium, overrides, reihenfolge)
         except KeyError:
             raise HTTPException(404, f"Lauf {run_id} nicht gefunden")
         except ValueError as exc:
@@ -111,7 +168,8 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
         """Formel-Baukasten: Instanz + Formulierung aus Bausteinen.
 
         Body: {"tasks": [1, 2], "plaetze": 2, "kriterium": "erledigungszeit", "variables": "kandidaten",
-               "params": {}, "preset": "reihenfolge" | "one_hot" | "nur_kosten", "terms": [...]}
+               "params": {}, "kodierung": "one_hot" | "domain_wall" | "binary" | {"12": "binary", …},
+               "reihenfolge": "nummer" | "kosten", "preset": "standard" | "nur_kosten", "terms": [...]}
         """
         try:
             return service.baukasten(run_id, body)

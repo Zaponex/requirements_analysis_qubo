@@ -49,10 +49,13 @@ export const STAGE_ORDER = ['Roh', 'Entpackt', 'Ungerollt_Unkontr_Verpackt', 'Un
 // Termarten der QUBO-Formulierungen (blau/orange/violett: alle Paare geprüft). Die Reihenfolge-Seite
 // ergänzt grün (Vorgänger-Korrektur) und rosa (Lückenregel) – geprüft in der Folge
 // kosten, reihenfolge, zeile, spalte, luecke; Terme tragen immer auch eine Beschriftung.
-export const TERM_ORDER = ['kosten', 'zeile', 'spalte'];
+export const TERM_ORDER = ['kosten', 'zeile']; // keine Spaltenregel: Doppelbelegung ist zulässig
 // Domain Wall: die Kettenregel spielt die Rolle der Zeilenregel („genau ein Roboter“) und trägt deren Farbe.
-export const TERM_COLORS = { kosten: '#2a78d6', zeile: '#eb6834', spalte: '#4a3aa7', reihenfolge: '#1baf7a', luecke: '#e87ba4', kette: '#eb6834' };
-export const TERM_TINTS = { kosten: '#cde2fb', zeile: '#fbe0d4', spalte: '#dedaf3', reihenfolge: '#d1efe4', luecke: '#fae5ee', kette: '#fbe0d4' };
+// Binary: ungültige Codes wie die Zeilenregel (orange), Hilfsbits grün.
+export const TERM_COLORS = { kosten: '#2a78d6', zeile: '#eb6834', spalte: '#4a3aa7', reihenfolge: '#1baf7a', luecke: '#e87ba4', kette: '#eb6834',
+  ungueltig: '#eb6834', hilfsbit: '#1baf7a', quer: '#4a3aa7' };
+export const TERM_TINTS = { kosten: '#cde2fb', zeile: '#fbe0d4', spalte: '#dedaf3', reihenfolge: '#d1efe4', luecke: '#fae5ee', kette: '#fbe0d4',
+  ungueltig: '#fbe0d4', hilfsbit: '#d1efe4', quer: '#dedaf3' };
 export const TERM_LABELS = {
   kosten: 'Kosten (Anfahrt)',
   zeile: 'Zeilenregel: genau ein Roboter je Auftrag',

@@ -4,29 +4,29 @@
 import { el, fill, nf, withTip, tipHtml, escapeHtml } from '../util.js';
 import { C, TERM_COLORS, plot, statusColor, statusLabel } from '../theme.js';
 import { createLayoutMap } from '../components/layoutMap.js';
+import { autoWeights, createWeightControls, weightsFromParams } from '../components/weightControls.js';
 import { initialScenario, renderScenario, shortName } from '../components/scenario.js';
 import { MAX_SEARCH_BITS, MAX_STORE_BITS, energy, fromMask, makeModel, rankOf, search, toMask } from '../qubo/engine.js';
 import { createMatrixView } from '../qubo/matrixView.js';
 import { createGraphView } from '../qubo/graphView.js';
+import { createLandscape } from '../components/landscape.js';
 import { createCriterionPanel, formulaHtml } from './onehotCriterion.js';
 import { DW_DEFAULT_TAB, DW_FORMULA_TABS, createDwFormulaPanel, decodeChains } from './domainWallFormula.js';
 
-const TERMS = ['kosten', 'kette', 'spalte'];
+const TERMS = ['kosten', 'kette']; // keine Spaltenregel: Doppelbelegung ist zulässig
 export const DW_LABELS = {
   kosten: 'Kosten (Teleskopsumme)',
   kette: 'Kettenregel: keine Wand 0 → 1',
-  spalte: 'Spaltenregel: kein Roboter doppelt',
 };
-const SHORT = { kosten: 'Kosten', kette: 'Kettenregel', spalte: 'Spaltenregel' };
+const SHORT = { kosten: 'Kosten', kette: 'Kettenregel' };
 const STEPS = [
   { title: 'Szenario', terms: {} },
   { title: 'Ketten', terms: {} },
   { title: 'Kosten', terms: { kosten: true } },
   { title: 'Kettenregel', terms: { kosten: true, kette: true } },
-  { title: 'Spaltenregel', terms: { kosten: true, kette: true, spalte: true } },
-  { title: 'QUBO & Hardware', terms: { kosten: true, kette: true, spalte: true } },
+  { title: 'QUBO & Hardware', terms: { kosten: true, kette: true } },
 ];
-const ALL = { kosten: true, kette: true, spalte: true };
+const ALL = { kosten: true, kette: true };
 const SUB = '₀₁₂₃₄₅₆₇₈₉';
 const sub = (s) => String(s).replace(/\d/g, (d) => SUB[d]);
 const fmtE = (v) => nf(v, 1).replace('-', '−');
@@ -35,7 +35,7 @@ const signed = (v) => (v < 0 ? `−${fmtE(-v)}` : `+${fmtE(v)}`);
 export function renderDomainWall(root, { run, api, params }) {
   const tasks = run.tasks;
   const st = {
-    step: Math.min(6, Math.max(1, Number(params.schritt) || 1)),
+    step: Math.min(STEPS.length, Math.max(1, Number(params.schritt) || 1)),
     showAll: false,
     ...initialScenario(tasks, params),
     mode: 'kandidaten',
@@ -43,7 +43,6 @@ export function renderDomainWall(root, { run, api, params }) {
     criterion: params.kriterium || 'leerfahrt',
     costParams: {},
     A: 100,
-    B: 50,
     terms: {},
     data: null,
     x: new Uint8Array(0),
@@ -63,6 +62,12 @@ export function renderDomainWall(root, { run, api, params }) {
   const quickHost = el('div', { class: 'quick' });
   const energyHost = el('div');
   const controlsHost = el('div');
+  const togglesHost = el('div');
+  const weightsHost = el('div');
+  controlsHost.append(togglesHost, weightsHost);
+  const linkedWeights = weightsFromParams(params, st, ['A']);
+  let firstLoad = true;
+  const weights = createWeightControls(weightsHost, { onChange: (key, value) => { st[key] = value; scheduleUpdate(); } });
   const rankHost = el('div');
   const stripHost = el('div', { class: 'chart short' });
   const matrixHost = el('div');
@@ -70,6 +75,8 @@ export function renderDomainWall(root, { run, api, params }) {
   const metricsHost = el('div');
   const formulaHost = el('div');
   const criterionHost = el('div');
+  const normHost = el('div');
+  const landHost = el('div');
   const section = (minStep, node) => { node.dataset.minStep = String(minStep); return node; };
   const cardEl = (title, sub2, ...body) => el('section', { class: 'card' },
     el('div', { class: 'card-head' }, el('div', {}, el('h3', {}, title), sub2 ? el('div', { class: 'card-sub', html: sub2 }) : null)),
@@ -77,10 +84,8 @@ export function renderDomainWall(root, { run, api, params }) {
 
   root.append(el('p', {
     class: 'intro',
-    html: `Dieselbe Aufgabe wie bei <a href="#/kodierungen/one-hot">One-Hot</a> – welcher Roboter übernimmt welchen Auftrag? –, aber anders
-      in Bits übersetzt: Jeder Auftrag bekommt eine <b>Kette</b> aus <i>R</i> − 1 Bits wie ein Thermometer. Wo die Einsen in Nullen
-      übergehen, steht die <b>Wand</b> – das ist der gewählte Roboter. Geh die Schritte der Reihe nach durch; alle Zahlen sind live.
-      Die Lese-Version steht in <code>encodings/domain_wall/README.md</code>.`,
+    html: `Dieselbe Aufgabe wie bei <a href="#/ta/one-hot">One-Hot</a>, anders in Bits: je Auftrag eine <b>Kette</b> aus <i>R</i> − 1 Bits
+      wie ein Thermometer; die <b>Wand</b> (1 → 0) zeigt den gewählten Roboter. Lesekapitel: <code>encodings/domain_wall/README.md</code>.`,
   }));
   root.append(el('section', { class: 'card guide' }, stepper,
     el('label', { class: 'filter-group', for: 'dw-all', style: { marginTop: '6px' } }, showAllBox, el('span', { class: 'hint' }, 'Alles auf einmal zeigen')),
@@ -88,25 +93,29 @@ export function renderDomainWall(root, { run, api, params }) {
 
   const layout = el('div', { class: 'grid', style: { marginTop: '16px' } },
     el('div', { class: 'grid grid-2' },
-      cardEl('Szenario: welche Aufträge?', 'Ein echter Moment aus der Simulation', scenarioBody),
-      cardEl('Lage in der Fabrik', 'Roboter im Snapshot · <b>#</b> = Abholort · dunkle Linie = Roboter, auf den die Wand zeigt', mapHost)),
+      cardEl('Szenario', 'Echter Moment der Simulation', scenarioBody),
+      cardEl('Lage in der Fabrik', 'Roboter im Snapshot · <b>#</b> = Abholort · dunkle Linie = Roboter an der Wand', mapHost)),
     section(2, el('div', { class: 'grid oh-main' },
-      cardEl('Die Ketten', 'Je Auftrag: feste 1 · Bits · feste 0 · zwischen zwei Nachbarn steht ein Roboter · <b>grün</b> = Wand 1→0 (gewählt), <b>rot</b> = falsche Wand 0→1 · Klick schaltet ein Bit',
+      cardEl('Die Ketten', 'Feste 1 · Bits · feste 0, zwischen Nachbarn ein Roboter · <b>grün</b> = Wand 1→0 (gewählt), <b>rot</b> = falsche Wand 0→1 · Klick schaltet',
         quickHost, boardHost),
-      section(3, cardEl('Energie dieses Zustands', 'Jeder Beitrag einzeln erklärt', controlsHost, energyHost)))),
-    section(3, cardEl('Bewertungskriterium: Wonach bewertet das QUBO?', 'Dieselben Kosten c<sub>t,r</sub> wie bei One-Hot – bei Domain Wall landen ihre <b>Differenzen</b> auf der Diagonale', criterionHost)),
-    section(3, cardEl('Die Formel dahinter', 'Wie die Domain-Wall-Formulierung wirkt – und wie die Zahlen eingesetzt werden · über Formelteile fahren hebt Bits hervor', formulaHost)),
-    section(3, cardEl('Die günstigsten Zustände', 'Alle Bitstellungen durchprobiert und nach Energie sortiert · Zeile anklicken zum Laden', rankHost, stripHost)),
-    section(6, el('div', { class: 'grid grid-2' },
-      cardEl('QUBO-Matrix', 'Jede Zahl ist eine Summe aus Kosten, Ketten- und Spaltenregel · Hover erklärt · umrandet = zählt gerade', matrixHost),
-      cardEl('Kopplungsgraph & Hardware-Bedarf', 'Knoten = Qubits (Zeile = Auftrag, Spalte = Position in der Kette), Linien = Kopplungen', graphHost, metricsHost))));
+      section(3, cardEl('Energie dieses Zustands', 'Jeder Beitrag einzeln', controlsHost, energyHost)))),
+    section(3, el('div', { class: 'grid grid-2' },
+      cardEl('QUBO-Matrix', 'Summe aus Kosten und Kettenregel · Hover erklärt · umrandet = zählt jetzt', matrixHost),
+      cardEl('Kopplungsgraph & Hardware', 'Knoten = Qubits (Zeile = Auftrag, Spalte = Kettenposition), Linien = Kopplungen', graphHost, metricsHost))),
+    section(3, el('div', { class: 'grid grid-2' },
+      cardEl('Normierte QUBO-Matrix', 'Q / max|Q| · blau = Belohnung, rot = Strafe', normHost),
+      cardEl('Energielandschaft', 'Alle Zustände als Fläche · Ziehen dreht, Scrollen zoomt', landHost))),
+    section(3, cardEl('Bewertungskriterium', 'Kosten c<sub>t,r</sub> wie bei One-Hot – auf der Diagonale stehen ihre <b>Differenzen</b>', criterionHost)),
+    section(3, cardEl('Die Formel dahinter', 'Hover über Formelteile hebt Bits hervor', formulaHost)),
+    section(3, cardEl('Die günstigsten Zustände', 'Alle Stellungen nach Energie · Klick lädt', rankHost, stripHost)));
   root.append(layout);
 
   const map = createLayoutMap(mapHost, { entities: run.entities, robots: run.robots, entityLabels: false });
+  const landscape = createLandscape(normHost, landHost);
   let matrixView = null;
   let graphView = null;
   const formula = createDwFormulaPanel(formulaHost, {
-    getState: () => ({ data: st.data, x: st.x, A: st.A, B: st.B, terms: st.terms, step: st.step, model: st.model }),
+    getState: () => ({ data: st.data, x: st.x, A: st.A, B: 0, terms: st.terms, step: st.step, model: st.model }),
     highlight: (sel) => highlightBoard(sel),
     clearHighlight: () => highlightBoard(null),
     setWeight: (key, value) => { st[key] = value; update(); },
@@ -116,8 +125,8 @@ export function renderDomainWall(root, { run, api, params }) {
   if (DW_FORMULA_TABS.some((t) => t.key === params.formel)) formula.setTab(params.formel, false);
   const criterionPanel = createCriterionPanel(criterionHost, {
     getState: () => ({ data: st.data, weightNote: st.weightNote, selected: st.selected,
-      diagonalHint: `Bei Domain Wall steht nicht <i>c</i><sub>t,r</sub> selbst auf der Diagonale, sondern die <b>Differenz zum nächsten Roboter der Kette</b>
-        (Teleskopsumme): Q[<i>b</i><sub>t,k</sub>] = <i>c</i><sub>t,k+1</sub> − <i>c</i><sub>t,k</sub>; die Kosten des ersten Roboters werden zur Konstanten.` }),
+      diagonalHint: `Auf der Diagonale steht die <b>Differenz zum nächsten Roboter der Kette</b> (Teleskopsumme):
+        Q[<i>b</i><sub>t,k</sub>] = <i>c</i><sub>t,k+1</sub> − <i>c</i><sub>t,k</sub>; die Kosten des ersten Roboters werden Konstante.` }),
     setCriterion: (key) => { st.criterion = key; load(); },
     setParam: (key, value) => { st.costParams = { ...st.costParams, [key]: value }; load(); },
     resetParams: () => { st.costParams = {}; load(); },
@@ -127,14 +136,14 @@ export function renderDomainWall(root, { run, api, params }) {
   function drawScenario(error) {
     const snap = st.data ? st.data.instance.snapshot : null;
     const orderBox = el('div', { class: 'filter-group', style: { marginTop: '8px' } }, el('span', { class: 'filter-label' }, 'Roboter in der Kette'),
-      ...[['nummer', 'nach Nummer (wie im Kapitel)'], ['kosten', 'nach Kosten – billigster zuerst']].map(([v, label]) => {
+      ...[['nummer', 'nach Nummer (Kapitel)'], ['kosten', 'billigster zuerst']].map(([v, label]) => {
         const b = el('button', { class: 'chip', type: 'button', 'aria-pressed': String(st.order === v) }, label);
         b.addEventListener('click', () => { st.order = v; load(); });
         return b;
       }));
     renderScenario(scenarioBody, {
       tasks, st, load, error, extra: orderBox,
-      note: snap ? `Vereinfachung fürs Lernen: Alle gewählten Aufträge sehen die Flotte im Snapshot von Anfrage #${snap.transport_id} (t = ${nf(snap.time)} s).` : null,
+      note: snap ? `Vereinfachung: Alle Aufträge sehen die Flotte von Anfrage #${snap.transport_id} (t = ${nf(snap.time)} s).` : null,
     });
   }
 
@@ -149,8 +158,10 @@ export function renderDomainWall(root, { run, api, params }) {
       return;
     }
     const d = st.data;
-    ({ A: st.A, B: st.B } = d.weights);
-    st.weightNote = `Strafgewichte: B = 1,5 × größte Spannweite der Kosten (${fmtE(d.weights.spread)}) → ${nf(st.B)}, A = 2·B = ${nf(st.A)} (warum doppelt: siehe Schritt 5).`;
+    // Empfohlene Gewichte übernehmen – außer per Link gesetzt oder Automatik aus
+    if (!(firstLoad && linkedWeights) && autoWeights()) st.A = d.weights.A;
+    firstLoad = false;
+    st.weightNote = `Empfehlung: A = 1,5 × größte Kostenspannweite (${fmtE(d.weights.spread)}) → ${nf(d.weights.A)} – ein Kettenbruch spart höchstens die Spannweite.`;
     const n = d.formulation.n;
     const prevX = st.x;
     st.x = new Uint8Array(n);
@@ -222,8 +233,8 @@ export function renderDomainWall(root, { run, api, params }) {
   // ---------------------------------------------------------------- Rechnen
   function compute() {
     const f = form();
-    st.model = makeModel(f, { A: st.A, B: st.B, terms: st.terms });
-    const key = `${st.A}|${st.B}|${TERMS.map((k) => (st.terms[k] ? 1 : 0)).join('')}|${f.n}|${st.selected}|${st.mode}|${st.order}|${st.criterion}|${JSON.stringify(st.costParams)}`;
+    st.model = makeModel(f, { A: st.A, B: 0, terms: st.terms });
+    const key = `${st.A}|${TERMS.map((k) => (st.terms[k] ? 1 : 0)).join('')}|${f.n}|${st.selected}|${st.mode}|${st.order}|${st.criterion}|${JSON.stringify(st.costParams)}`;
     if (key !== st.resultKey) {
       const r = search(st.model, 12);
       st.result = r ? { min: { E: r.min.E, x: fromMask(r.min.mask, f.n) }, top: r.top, all: r.all, total: r.total } : null;
@@ -231,7 +242,7 @@ export function renderDomainWall(root, { run, api, params }) {
     }
   }
   function minUnder(terms) {
-    const m = makeModel(form(), { A: st.A, B: st.B, terms });
+    const m = makeModel(form(), { A: st.A, B: 0, terms });
     const r = search(m, 1);
     return r ? { x: fromMask(r.min.mask, m.n), E: r.min.E } : null;
   }
@@ -248,10 +259,11 @@ export function renderDomainWall(root, { run, api, params }) {
     renderControls();
     renderEnergy();
     renderRanking();
-    if (st.step >= 6 || st.showAll) {
+    if (st.step >= 3 || st.showAll) {
       matrixView.update(st.model, st.x);
       graphView.update(st.model, st.x);
       renderMetrics();
+      landscape.update({ model: st.model, labels: form().bits.map((b, i) => bitLabel(i)), x: st.x, minX: st.result?.min.x, isValid, cacheKey: st.result });
     }
     if (st.step >= 3 || st.showAll) {
       criterionPanel.render();
@@ -285,66 +297,47 @@ export function renderDomainWall(root, { run, api, params }) {
     const free = d.robots.filter((r) => r.available);
     const perTask = f.chains.map((c) => `#${c.task_id}: ${c.robots.length} Roboter → ${Math.max(0, c.robots.length - 1)} Bits`).join(', ');
     const lonely = f.chains.filter((c) => c.robots.length === 1);
-    const next = st.step < 6 ? ` <button class="btn small primary" type="button" data-next>Weiter: ${st.step + 1} · ${STEPS[st.step].title} →</button>` : '';
+    const next = st.step < STEPS.length ? ` <button class="btn small primary" type="button" data-next>Weiter: ${st.step + 1} · ${STEPS[st.step].title} →</button>` : '';
     const ohN = st.data.one_hot.n;
     let html = '';
     if (st.step === 1) {
-      html = `Im gewählten Moment liegen <b>${T} Auftrag${T === 1 ? '' : 'e'}</b> vor (${d.tasks.map((t) => `#${t.transport_id}`).join(', ')}),
-        <b>${free.length} von ${d.robots.length} Robotern sind frei</b>. Die Frage ist dieselbe wie bei One-Hot:
-        <b>Welcher Roboter übernimmt welchen Auftrag, damit ${escapeHtml(crit().goal)}?</b> Neu ist nur, <b>wie</b> wir die Antwort in Bits schreiben.
-        ${T > free.length ? '<br><span class="warnline">⚠ Mehr Aufträge als freie Roboter – bei Domain Wall wird das besonders interessant (Schritt 5).</span>' : ''}`;
+      html = `<b>${T} Auftrag${T === 1 ? '' : 'e'}</b> (${d.tasks.map((t) => `#${t.transport_id}`).join(', ')}), <b>${free.length} von ${d.robots.length} Robotern frei</b>.
+        Frage wie bei One-Hot: <b>Welcher Roboter übernimmt welchen Auftrag, damit ${escapeHtml(crit().goal)}?</b> Neu ist nur die Schreibweise in Bits.
+        ${T > free.length ? '<br>Mehr Aufträge als freie Roboter – zulässig: Ein Roboter übernimmt dann mehrere.' : ''}`;
     } else if (st.step === 2) {
-      html = `Jeder Auftrag bekommt eine <b>Kette</b>: links eine feste 1, rechts eine feste 0, dazwischen <i>R</i> − 1 Bits. Zwischen zwei Nachbarn
-        steht jeweils ein Roboter. Irgendwo muss die Kette von 1 auf 0 wechseln – diese <b>Wand</b> zeigt den gewählten Roboter (grün).
-        Hier: ${perTask} → <b>${f.n} Bits</b> (One-Hot: ${ohN}). „Alle aus“ ist schon gültig: jeder nimmt den ersten Roboter seiner Kette.
-        Klick Bits an: <code>110</code> heißt dritter Roboter; <code>010</code> hat drei Wände (rot = falsch herum) – ungültig.
-        Und: <b>„niemand“ oder „zwei Roboter“ lassen sich gar nicht ausdrücken</b> – jede gültige Kette ist genau ein Roboter.
-        ${lonely.length ? `<br>${lonely.map((c) => `#${c.task_id}`).join(', ')} hat nur einen möglichen Roboter: 0 Bits, die Antwort steht fest.` : ''}
-        ${f.unrepresentable.length ? `<br><span class="warnline">⚠ ${f.unrepresentable.map((t) => `#${t}`).join(', ')}: kein Roboter frei – Domain Wall kann diesen Auftrag gar nicht darstellen (One-Hot: Zeilenregel kostet immer A).</span>` : ''}`;
+      html = `Je Auftrag eine <b>Kette</b>: feste 1, <i>R</i> − 1 Bits, feste 0; zwischen zwei Nachbarn steht ein Roboter. Der Wechsel 1 → 0, die <b>Wand</b>,
+        zeigt den gewählten Roboter (grün). Hier ${perTask} → <b>${f.n} Bits</b> (One-Hot: ${ohN}). „Alle aus“ ist gültig: jeder nimmt seinen ersten Roboter.
+        <code>110</code> = dritter Roboter; <code>010</code> hat drei Wände (rot = falsch herum) – ungültig.
+        <b>„Niemand“ oder „zwei Roboter“ sind gar nicht darstellbar</b> – jede gültige Kette ist genau ein Roboter.
+        ${lonely.length ? `<br>${lonely.map((c) => `#${c.task_id}`).join(', ')}: nur ein möglicher Roboter – 0 Bits, die Antwort steht fest.` : ''}
+        ${f.unrepresentable.length ? `<br><span class="warnline">⚠ ${f.unrepresentable.map((t) => `#${t}`).join(', ')}: kein Roboter frei – in Domain Wall nicht darstellbar (One-Hot: Zeilenregel kostet immer A).</span>` : ''}`;
     } else if (st.step === 3) {
       const m = minUnder({ kosten: true });
       const dec = m ? decode(m.x) : null;
       const sortedOk = st.order === 'kosten';
-      html = `Wie bei One-Hot zahlt jede Zuweisung ihre Kosten <i>c</i><sub>t,r</sub> (${escapeHtml(crit().label)}: ${formulaHtml(crit().formula)}).
-        Der Roboter an der Wand wird mit <b>δ</b> = (linker Nachbar) − (rechter Nachbar) ausgewählt – das ist 1 genau an der Wand.
-        In Σ <i>c</i>·δ hebt sich fast alles auf (Teleskopsumme): Es bleiben die <b>Kosten des ersten Roboters als Konstante</b> und je Bit die
-        <b>Differenz zum nächsten Roboter</b> – die kleine Zahl im Bit. Jedes Bit, das auf 1 springt, schiebt die Wand einen Roboter weiter.
-        Nur mit Kosten ist das Minimum <b>${m ? describeState(m.x) : '–'}</b> (E = ${m ? fmtE(m.E) : '–'}).
-        ${dec && !dec.valid ? `<br><span class="warnline">⚠ Ungültige Ketten bekommen „Phantasiewerte“ aus der Formel – hier ist eine davon sogar das Minimum. Wir brauchen eine Regel.</span>`
-    : `<br>Zufällig gültig${sortedOk ? ' – kein Zufall bei Sortierung nach Kosten: alle Differenzen sind ≥ 0, also ist „alle aus“ (jeder seinen billigsten) das Minimum' : ' – das ist Glück, kein Prinzip (Gegenbeispiel im Lesekapitel, Schritt 6)'}.
-          ${dec && dec.issues.some((i) => i.kind === 'spalte') ? ' Aber zwei Aufträge teilen sich einen Roboter.' : ''}`}`;
+      html = `Kosten <i>c</i><sub>t,r</sub> wie bei One-Hot (${escapeHtml(crit().label)}: ${formulaHtml(crit().formula)}), gewählt mit <b>δ</b> = linker − rechter Nachbar
+        (1 genau an der Wand). Σ <i>c</i>·δ ist eine Teleskopsumme: <b>Kosten des ersten Roboters als Konstante</b>, je Bit die <b>Differenz zum nächsten
+        Roboter</b> (kleine Zahl im Bit) – jede 1 schiebt die Wand einen Roboter weiter. Minimum nur mit Kosten: <b>${m ? describeState(m.x) : '–'}</b> (E = ${m ? fmtE(m.E) : '–'}).
+        ${dec && !dec.valid ? `<br><span class="warnline">⚠ Ungültige Ketten bekommen Phantasiewerte – hier ist eine sogar das Minimum. Es braucht eine Regel.</span>`
+    : `<br>Zufällig gültig${sortedOk ? ' – bei Sortierung nach Kosten kein Zufall: alle Differenzen ≥ 0, „alle aus“ ist das Minimum' : ' – Glück, kein Prinzip (Gegenbeispiel im Lesekapitel, Schritt 6)'}.`}`;
     } else if (st.step === 4) {
       const m = minUnder({ kosten: true, kette: true });
       const dec = m ? decode(m.x) : null;
-      const dbl = dec ? dec.issues.filter((i) => i.kind === 'spalte') : [];
-      html = `Regel 1: <b>Keine Wand der falschen Art.</b> Eine 1 rechts von einer 0 (0 → 1, rot) kostet <b>A·<i>b</i><sub>i+1</sub>(1 − <i>b</i><sub>i</sub>)</b>.
-        Weil der linke und rechte Rand fest sind, bringt jede falsche Wand eine weitere echte mit – ohne falsche Wand gibt es genau eine Wand, also genau einen Roboter.
-        Die Regel verbindet <b>nur direkte Nachbarn</b>: eine Kette statt der Clique von One-Hot.
-        Mit A = ${nf(st.A)} ist das Minimum <b>${m ? describeState(m.x) : '–'}</b> (E = ${m ? fmtE(m.E) : '–'}).
-        Faustregel: A größer als die Spannweite der Kosten eines Auftrags (hier ${fmtE(st.data.weights.spread)}).
-        ${dbl.length ? `<br><span class="warnline">⚠ Aber: ${dbl.map((i) => i.text).join(', ')} – das verbietet noch niemand. Weiter zur Spaltenregel.</span>` : ''}`;
-    } else if (st.step === 5) {
-      const m = minUnder(ALL);
-      const g = nearest();
-      const gv = decode(g).issues.filter((i) => i.kind === 'spalte');
-      const dec = m ? decode(m.x) : null;
+      const doubles = dec ? [...dec.used].filter(([, ts]) => ts.length > 1) : [];
       const best = st.data.best;
       const opt = dec && dec.valid && best && Math.abs(m.E - best.value) < 1e-6;
-      html = `Regel 2: <b>Kein Roboter fährt zwei Aufträge.</b> Für jedes Paar von Aufträgen, die denselben Roboter in ihrer Kette haben, gibt es
-        <b>B·δ·δ′</b> – nur 1, wenn beide Wände vor diesem Roboter stehen. Weil jedes δ linear ist (Differenz zweier Bits), bleibt das Produkt quadratisch.
-        ${gv.length ? `„Jeder nimmt den nächsten“ (${describeState(g)}) verletzt das: ${gv.map(violationText).join(', ')}.` : ''}
-        Mit A = ${nf(st.A)}, B = ${nf(st.B)} ist das Minimum <b>${m ? describeState(m.x) : '–'}</b> (E = ${m ? fmtE(m.E) : '–'})
-        ${opt ? '<span class="okline">✓ die beste gültige Zuweisung.</span>' : dec && !dec.valid ? `<span class="warnline">✗ ${dec.issues.map(violationText).join(', ')}</span>` : ''}
-        <br><b>Feinheit:</b> An einer falschen Wand ist δ = −1. Dann wird B·δ·δ′ negativ – aus der Strafe wird eine Belohnung. Deshalb muss die Kettenregel
-        die Spaltenregel überstimmen: <b>A = 2·B</b>. Mit A = B war das Minimum in rund 40 % der geprüften echten Momente unzulässig (Test in <code>tests/test_domain_wall.py</code>) –
-        probier es mit dem A-Regler aus.
-        ${!best ? '<br><span class="warnline">Es gibt keine gültige Zuweisung: Domain Wall kann keinen Auftrag liegen lassen – irgendein Roboter muss doppelt fahren oder eine Kette bricht.</span>' : ''}`;
+      html = `Regel: <b>Keine falsche Wand.</b> Eine 1 rechts einer 0 (rot) kostet <b>A·<i>b</i><sub>i+1</sub>(1 − <i>b</i><sub>i</sub>)</b>. Weil die Ränder fest sind,
+        gibt es ohne falsche Wand genau eine Wand, also genau einen Roboter. Gekoppelt sind <b>nur direkte Nachbarn</b> – eine Kette statt der One-Hot-Clique.
+        Minimum bei A = ${nf(st.A)}: <b>${m ? describeState(m.x) : '–'}</b> (E = ${m ? fmtE(m.E) : '–'})
+        ${opt ? '<span class="okline">✓ beste Zuweisung – je Auftrag der billigste Roboter.</span>' : dec && !dec.valid ? `<span class="warnline">✗ ${dec.issues.map(violationText).join(', ')}</span>` : ''}
+        Faustregel: A > Kostenspannweite eines Auftrags (hier ${fmtE(st.data.weights.spread)}) – ein Kettenbruch spart höchstens sie.
+        ${doubles.length ? `<br>${doubles.map(([r, ts]) => `R${r} übernimmt ${ts.map((t) => `#${t}`).join(', ')}`).join(', ')} – <b>Doppelbelegung ist zulässig</b>.` : ''}
+        ${!best ? '<br><span class="warnline">Ein Auftrag ohne möglichen Roboter ist in Domain Wall nicht darstellbar.</span>' : ''}`;
     } else {
       const mc = metrics();
-      html = `Ausmultipliziert ist das eine <b>QUBO-Matrix</b> mit <b>${mc.n} Variablen</b> und <b>${mc.couplings} Kopplungen</b>
-        (${mc.chain} aus Ketten, ${mc.col} aus der Spaltenregel). One-Hot braucht für dieselben Aufträge ${st.data.one_hot.n} Variablen und ${st.data.one_hot.couplings} Kopplungen.
-        Die Ketten sind sehr hardwarefreundlich – aber zwei Ketten, die um dieselben Roboter konkurrieren, brauchen <b>3R − 5</b> Kopplungen (One-Hot nur R).
-        Unten steht, ab wie vielen Aufträgen Domain Wall deshalb <b>mehr</b> Kopplungen braucht als One-Hot.`;
+      html = `Ausmultipliziert: <b>QUBO-Matrix</b> mit <b>${mc.n} Qubits</b> und <b>${mc.couplings} Kopplungen</b> – nur Kettennachbarn;
+        One-Hot: ${st.data.one_hot.n} / ${st.data.one_hot.couplings}. Ohne Spaltenregel sind die Ketten <b>nicht gekoppelt</b>: je Auftrag ein Block,
+        und Domain Wall braucht immer weniger Qubits und Kopplungen als One-Hot (Tabelle beim Kopplungsgraph).`;
     }
     explain.innerHTML = `<div class="explain-title">Schritt ${st.step} · ${STEPS[st.step - 1].title}</div><div>${html}</div>${next ? `<div style="margin-top:8px">${next}</div>` : ''}`;
     const nb = explain.querySelector('[data-next]');
@@ -407,11 +400,11 @@ export function renderDomainWall(root, { run, api, params }) {
       return el('div', { class: 'dw-row' }, head, el('div', { class: 'dw-chain' }, parts), result);
     });
     const robots = st.data.instance.robots.filter((r) => form().chains.some((c) => c.robots.includes(r.robot_id)));
-    const usage = el('div', { class: 'dw-usage' }, el('span', { class: 'filter-label' }, 'Σ je Roboter'),
+    const usage = el('div', { class: 'dw-usage' }, el('span', { class: 'filter-label', title: 'Doppelbelegung ist zulässig' }, 'Aufträge je Roboter'),
       robots.map((r) => {
         const n = (dec.used.get(r.robot_id) || []).length;
-        return el('span', { class: `sum col-sum ${n <= 1 ? 'good' : 'bad'}`, 'data-robot': r.robot_id },
-          el('span', { class: 'dot-inline', style: { background: statusColor(r.status) } }), ` R${r.robot_id}: ${n} ${n <= 1 ? '✓' : '✗'}`);
+        return el('span', { class: 'sum col-sum', 'data-robot': r.robot_id },
+          el('span', { class: 'dot-inline', style: { background: statusColor(r.status) } }), ` R${r.robot_id}: ${n}`);
       }));
     fill(boardHost, el('div', { class: 'dw-board' }, rows), usage);
 
@@ -423,7 +416,9 @@ export function renderDomainWall(root, { run, api, params }) {
       st.step >= 3 || st.showAll
         ? el('button', { class: 'btn small primary', type: 'button', disabled: !st.result, onclick: () => { st.x = Uint8Array.from(st.result.min.x); update(); } }, 'Minimum laden')
         : null,
-      el('a', { class: 'btn small', href: `#/kodierungen/one-hot?auftraege=${st.selected.join(',')}&kriterium=${st.criterion}&schritt=${st.step}`,
+el('a', { class: 'btn small', href: `#/ta/baukasten?auftraege=${st.selected.join(',')}&plaetze=1&kriterium=${st.criterion}${st.mode === 'alle' ? '&modus=alle' : ''}&kodierung=domain_wall${st.order === 'kosten' ? '&reihenfolge=kosten' : ''}`,
+        title: 'Dieselben Aufträge im Formel-Baukasten: Bausteine verändern, Kodierungen mischen, falsch machen' }, 'Formel verändern → Baukasten'),
+      el('a', { class: 'btn small', href: `#/ta/one-hot?auftraege=${st.selected.join(',')}&kriterium=${st.criterion}&schritt=${st.step}`,
         title: 'Dieselben Aufträge mit One-Hot' }, 'Vergleich: One-Hot →'));
   }
 
@@ -435,18 +430,12 @@ export function renderDomainWall(root, { run, api, params }) {
         b.addEventListener('click', () => { st.terms[k] = !st.terms[k]; update(); });
         return b;
       }));
-    const max = Math.max(200, 4 * st.data.weights.A, st.A, st.B);
-    const slider = (name, key, color, minStep) => {
-      if (!(st.step >= minStep || st.showAll)) return null;
-      const input = el('input', { type: 'range', min: 0, max, step: 1, value: st[key], 'aria-label': name });
-      const val = el('strong', { style: { color } }, nf(st[key]));
-      input.addEventListener('input', () => { st[key] = Number(input.value); val.textContent = nf(st[key]); scheduleUpdate(); });
-      return el('div', { class: 'slider-row' }, el('span', { class: 'filter-label', style: { minWidth: '150px' } }, name), input, val);
-    };
-    fill(controlsHost, toggles,
-      slider('Strafgewicht A (Kette)', 'A', TERM_COLORS.kette, 4),
-      slider('Strafgewicht B (Spalte)', 'B', TERM_COLORS.spalte, 5),
-      st.step >= 4 || st.showAll ? el('p', { class: 'hint' }, st.weightNote) : null);
+    fill(togglesHost, toggles);
+    const w = st.data.weights;
+    const items = [];
+    if (st.step >= 4 || st.showAll) items.push({ key: 'A', label: 'A · Kettenregel', color: TERM_COLORS.kette, value: st.A, recommended: w.A, hint: '> Kostenspannweite eines Auftrags' });
+    weightsHost.hidden = !items.length;
+    if (items.length) weights.render({ items, note: st.weightNote });
   }
   let pending = null;
   function scheduleUpdate() { clearTimeout(pending); pending = setTimeout(update, 60); }
@@ -454,7 +443,7 @@ export function renderDomainWall(root, { run, api, params }) {
   function renderEnergy() {
     if (!(st.step >= 3 || st.showAll)) return;
     const dec = decode(st.x);
-    const parts = { kosten: [], kette: [], spalte: [] };
+    const parts = { kosten: [], kette: [] };
     for (const c of dec.chains) {
       if (!c.ch.robots.length) continue;
       const value = c.ch.costs.reduce((s, cost, k) => s + cost * (c.b[k] - c.b[k + 1]), 0);
@@ -468,21 +457,13 @@ export function renderDomainWall(root, { run, api, params }) {
         if (st.x[i] && !st.x[left]) parts.kette.push({ v: st.A, ok: false, text: `#${c.ch.task_id}: ${bitLabel(left)} = 0, ${bitLabel(i)} = 1 → falsche Wand: A = ${fmtE(st.A)}` });
       });
     }
-    for (const r of form().rules.filter((rr) => rr.kind === 'spalte')) {
-      const lin = (e) => e.const + Object.entries(e.terms).reduce((s, [i, c]) => s + c * st.x[Number(i)], 0);
-      const d1 = lin(r.deltas[0]);
-      const d2 = lin(r.deltas[1]);
-      if (d1 * d2 === 0) continue;
-      parts.spalte.push({ v: st.B * d1 * d2, ok: d1 * d2 < 0 ? undefined : false,
-        text: `R${r.robot_id}: #${r.tasks[0]} und #${r.tasks[1]} → δ·δ′ = ${d1}·${d2} → ${fmtE(st.B * d1 * d2)}${d1 * d2 < 0 ? ' (Belohnung an falscher Wand!)' : ''}` });
-    }
     const sums = Object.fromEntries(TERMS.map((k) => [k, st.terms[k] ? parts[k].reduce((s, p) => s + p.v, 0) : 0]));
     const E = TERMS.reduce((s, k) => s + sums[k], 0);
     const Eq = energy(st.model, st.x);
     const rank = st.result ? rankOf(st.result, toMask(st.x)) : null;
     const bar = el('div', { class: 'ebar' }, TERMS.filter((k) => sums[k] > 0).map((k) => withTip(
       el('div', { style: { flex: `${sums[k]} 0 0`, background: TERM_COLORS[k] } }), tipHtml(DW_LABELS[k], [fmtE(sums[k])]))));
-    const empty = { kosten: 'keine Kette', kette: 'keine falsche Wand ✓', spalte: 'kein Roboter doppelt ✓' };
+    const empty = { kosten: 'keine Kette', kette: 'keine falsche Wand ✓' };
     const group = (k) => el('div', { class: `egroup${st.terms[k] ? '' : ' off'}` },
       el('div', { class: 'egroup-head' }, el('span', { class: 'swatch', style: { background: TERM_COLORS[k] } }),
         el('span', {}, k === 'kosten' ? `Kosten: ${crit().label} [${unit()}]` : DW_LABELS[k]), el('strong', {}, st.terms[k] ? fmtE(sums[k]) : 'aus')),
@@ -501,7 +482,7 @@ export function renderDomainWall(root, { run, api, params }) {
     if (!(st.step >= 3 || st.showAll)) return;
     const n = form().n;
     if (!st.result) {
-      rankHost.replaceChildren(el('p', { class: 'hint' }, `${n} Bits = ${nf(2 ** n)} Stellungen – zu viele zum Durchprobieren im Browser (Grenze: ${MAX_SEARCH_BITS}).`));
+      rankHost.replaceChildren(el('p', { class: 'hint' }, `${n} Bits = ${nf(2 ** n)} Stellungen – zu viele für den Browser (max. ${MAX_SEARCH_BITS}).`));
       Plotly.purge(stripHost);
       return;
     }
@@ -550,10 +531,8 @@ export function renderDomainWall(root, { run, api, params }) {
 
   function metrics() {
     const offs = st.model.entries.filter((e) => e.i !== e.j && e.value !== 0);
-    const chain = offs.filter((e) => e.activeParts.some((p) => p.kind === 'kette')).length;
-    const col = offs.filter((e) => e.activeParts.some((p) => p.kind === 'spalte') && !e.activeParts.some((p) => p.kind === 'kette')).length;
     const coefs = st.model.entries.filter((e) => e.activeParts.length).map((e) => Math.abs(e.value));
-    return { n: form().n, couplings: offs.length, chain, col, maxCoef: coefs.length ? Math.max(...coefs) : 0 };
+    return { n: form().n, couplings: offs.length, maxCoef: coefs.length ? Math.max(...coefs) : 0 };
   }
 
   function renderMetrics() {
@@ -562,9 +541,8 @@ export function renderDomainWall(root, { run, api, params }) {
     const R = Math.max(1, ...form().chains.map((c) => c.robots.length));
     const T = form().chains.length;
     const rows = Array.from({ length: 8 }, (_, k) => k + 1).map((t) => {
-      const pairs = (t * (t - 1)) / 2;
-      const dw = t * Math.max(0, R - 2) + pairs * Math.max(0, 3 * R - 5);
-      const ohc = (t * R * (R - 1)) / 2 + R * pairs;
+      const dw = t * Math.max(0, R - 2);
+      const ohc = (t * R * (R - 1)) / 2;
       return el('tr', { class: t === T ? 'selected' : '' }, el('td', { class: 'num' }, t),
         el('td', { class: 'num' }, `${t * (R - 1)} / ${dw}`), el('td', { class: 'num' }, `${t * R} / ${ohc}`),
         el('td', { class: dw < ohc ? 'ok' : 'no' }, dw < ohc ? 'Domain Wall sparsamer' : dw === ohc ? 'gleich' : 'One-Hot sparsamer'));
@@ -572,17 +550,16 @@ export function renderDomainWall(root, { run, api, params }) {
     fill(metricsHost,
       el('div', { class: 'kpis', style: { marginTop: '10px' } },
         kpiSmall('Variablen (Qubits)', nf(mc.n), `One-Hot: ${nf(oh.n)} – ein Bit weniger je Auftrag`),
-        kpiSmall('Kopplungen', nf(mc.couplings), `${mc.chain} Kette · ${mc.col} Spalte · One-Hot: ${nf(oh.couplings)}`),
-        kpiSmall('Größter |Koeffizient|', fmtE(mc.maxCoef), 'A = 2B treibt ihn hoch')),
-      el('h4', {}, `Wann lohnt sich Domain Wall? – ${R} Roboter, alle Aufträge konkurrieren um alle`),
+        kpiSmall('Kopplungen', nf(mc.couplings), `nur Kettennachbarn · One-Hot: ${nf(oh.couplings)}`),
+        kpiSmall('Größter |Koeffizient|', fmtE(mc.maxCoef), 'A treibt ihn hoch')),
+      el('h4', {}, `Domain Wall gegen One-Hot – ${R} Roboter je Auftrag`),
       el('table', { class: 'data' },
         el('thead', {}, el('tr', {}, el('th', { class: 'num' }, 'Aufträge T'), el('th', { class: 'num' }, 'Domain Wall: Bits / Kopplungen'),
           el('th', { class: 'num' }, 'One-Hot: Bits / Kopplungen'), el('th', {}, ''))),
         el('tbody', {}, rows)),
-      el('p', { class: 'hint', html: `Domain Wall: <i>T</i>(<i>R</i> − 2) Kettenkopplungen + Paare·(3<i>R</i> − 5); One-Hot: <i>T</i>·<i>R</i>(<i>R</i> − 1)/2 + <i>R</i>·Paare.
-        Die Kette spart je Auftrag, aber jedes konkurrierende Auftragspaar kostet bei Domain Wall 3<i>R</i> − 5 statt <i>R</i> Kopplungen.
-        Mit Zuständigkeitsbereichen konkurrieren weniger Paare – dann verschiebt sich die Grenze. Hervorgehoben: dein Szenario (${T} Aufträge).` }),
-      el('div', { class: 'legend' }, ['kette', 'spalte'].map((k) => el('span', { class: 'legend-item' },
+      el('p', { class: 'hint', html: `Domain Wall: <i>T</i>(<i>R</i> − 2) Kopplungen, One-Hot: <i>T</i>·<i>R</i>(<i>R</i> − 1)/2 – ohne Spaltenregel wächst beides nur linear mit <i>T</i>.
+        (Mit Spaltenregel kämen je konkurrierendem Auftragspaar 3<i>R</i> − 5 bzw. <i>R</i> dazu.) Hervorgehoben: dein Szenario (${T}).` }),
+      el('div', { class: 'legend' }, ['kette'].map((k) => el('span', { class: 'legend-item' },
         el('span', { class: 'swatch', style: { background: TERM_COLORS[k], height: '3px' } }), DW_LABELS[k]))));
   }
 

@@ -2,7 +2,7 @@
 
 Wie wird aus der Frage „Welcher Roboter übernimmt welchen Auftrag?“ ein Problem, das ein Quantenoptimierer lösen kann? Dieser Ordner erklärt die drei Kodierungen **One-Hot**, **Domain Wall** und **Binary** Schritt für Schritt – an demselben echten Beispiel aus der Simulation, mit Bildern und nachgerechneten Zahlen.
 
-> **Interaktiv:** One-Hot und Domain Wall lassen sich im Lernlabor an beliebigen echten Aufträgen selbst ausprobieren: `python -m webapp --open`, dann Reiter **2 · Kodierungen**. Grundlage ist [`formulations.py`](formulations.py). Für das Kapitel-Beispiel liefert sie dieselben Zahlen wie dieses Kapitel, das prüft [`tests/test_one_hot.py`](../tests/test_one_hot.py).
+> **Interaktiv:** One-Hot, Domain Wall und Binary lassen sich im Lernlabor an beliebigen echten Aufträgen selbst ausprobieren: `python -m webapp --open`, dann Reiter **3 · Kodierungen TA** (ohne Spaltenregel) oder **2 · Kodierungen IA** (Sofortzuweisung mit Spaltenregel, One-Hot, Domain Wall und Binary in den Fällen T = R, T < R, T > R, `formulations.one_hot_ia`, `formulations.domain_wall_ia`, `formulations.binary_ia`). Grundlage ist [`formulations.py`](formulations.py). Für das Kapitel-Beispiel liefert sie dieselben Zahlen wie dieses Kapitel, das prüft [`tests/test_one_hot.py`](../tests/test_one_hot.py).
 
 ## Lesereihenfolge
 
@@ -15,11 +15,17 @@ Wie wird aus der Frage „Welcher Roboter übernimmt welchen Auftrag?“ ein Pro
 
 Am besten in dieser Reihenfolge lesen – jedes Kapitel baut auf dem vorherigen auf und vergleicht sich damit.
 
-**Formel-Baukasten:** Im Lernlabor (Reiter **2 · Kodierungen › Formel-Baukasten**) lässt sich jede dieser Formeln aus Bausteinen umbauen – auch falsch –, und eine Diagnose misst das Ergebnis am echten Problem. Der Kern steht in [`baukasten.py`](baukasten.py): Jede quadratische Funktion der Anzahl $n$ eingeschalteter Bits einer Gruppe, $f(n) = a + b\,n + c\,n^2$, ist eine QUBO, weil $x^2 = x$:
+**Formel-Baukasten:** Im Lernlabor (Reiter **3 · Kodierungen TA › Formel-Baukasten**) lässt sich jede dieser Formeln aus Bausteinen umbauen – auch falsch –, und eine Diagnose misst das Ergebnis am echten Problem. Der Kern steht in [`baukasten.py`](baukasten.py): Jede quadratische Funktion der Anzahl $n$ eingeschalteter Bits einer Gruppe, $f(n) = a + b\,n + c\,n^2$, ist eine QUBO, weil $x^2 = x$:
 
 $$f\Big(\sum_{i \in G} x_i\Big) = a + (b + c)\sum_{i \in G} x_i + 2c \sum_{i<j \in G} x_i x_j$$
 
-„Genau $k$“ ist $(k - n)^2$, also $a = k^2, b = -2k, c = 1$. „Höchstens eins“ ist $n(n-1)/2$, also $a = 0, b = -\tfrac12, c = \tfrac12$. Eine lineare Regel $k - n$ hat $c = 0$ und belohnt jedes weitere Bit – der typische Fehler. Die festen Formulierungen aus [`formulations.py`](formulations.py) sind Voreinstellungen des Baukastens (geprüft in [`tests/test_baukasten.py`](../tests/test_baukasten.py)).
+„Genau $k$“ ist $(k - n)^2$, also $a = k^2, b = -2k, c = 1$. „Höchstens eins“ ist $n(n-1)/2$, also $a = 0, b = -\tfrac12, c = \tfrac12$. Eine lineare Regel $k - n$ hat $c = 0$ und belohnt jedes weitere Bit – der typische Fehler. Die festen Formulierungen aus [`formulations.py`](formulations.py) – One-Hot, Reihenfolge, Domain Wall und Binary – sind Voreinstellungen des Baukastens (geprüft in [`tests/test_baukasten.py`](../tests/test_baukasten.py)).
+
+Der Baukasten trennt dabei **Kodierung** und **Regel**. Jeder Auftrag $t$ wählt eine Option $o$ (Roboter bzw. Roboter-Platz); die Regeln der Zuweisung rechnen mit dem Indikator $I_{t,o}$ = „$t$ nimmt $o$“, und erst die Kodierung sagt, welches Polynom der Bits das ist:
+
+$$I^{\text{One-Hot}}_{t,o} = x_{t,o}, \qquad I^{\text{DW}}_{t,k} = b_{t,k} - b_{t,k+1}, \qquad I^{\text{Bin}}_{t,k} = \prod_j \begin{cases} z_{t,j} & \text{Stelle } j \text{ von } k \text{ ist } 1 \\ 1 - z_{t,j} & \text{sonst} \end{cases}$$
+
+Eine Spaltenregel $\sum I_{t,r} I_{t',r}$ (höchstens ein Auftrag je Roboter) wäre deshalb bei One-Hot eine Kopplung, bei Domain Wall ein Produkt zweier Differenzen ($3R - 5$ Kopplungen je Auftragspaar) und bei Binary ein Term vom Grad $2\lceil\log_2 R\rceil$, der Hilfsbits braucht. **Seit 26.10.2026 verzichtet das Projekt auf sie:** Doppelbelegung ist zulässig, die Aufträge koppeln bei der Sofortzuweisung nicht mehr, und jede Kodierung zerfällt in einen Block je Auftrag. Die Kapitel unten beschreiben die Spaltenregel weiter als strengere Variante (`column_rule=True`). Die Kodierung kann je Auftrag verschieden sein. Ausmultipliziert wird mit $I^2 = I$ – das stimmt für One-Hot-Bits und Binär-Indikatoren, aber nicht für Domain-Wall-Differenzen an gebrochenen Ketten ($\delta = -1$). Deshalb ist die Zeilenregel $(1 - \sum_k \delta_k)^2$ auf einer Kette ausmultipliziert $1 - W$ mit $W$ = Anzahl Wände: Sie belohnt Kettenbrüche, statt sie zu verhindern. Jede Kodierung braucht ihre eigene Gültigkeitsregel – Zeilenregel, Kettenregel oder Phantom-Codes.
 
 **Wichtig für die Kriterien:** Die ersten drei Kapitel rechnen eine **Sofortzuweisung**, bei der jeder Roboter höchstens einen Auftrag bekommt. Nur dort ist jede Zuweisung eine feste Zahl $c_{t,r}$ auf der Diagonale. Summen von Erledigungszeiten mit mehreren Aufträgen je Roboter brauchen Hilfsvariablen, siehe [One-Hot mit Reihenfolge](reihenfolge/README.md).
 
@@ -41,7 +47,7 @@ Kurz gesagt:
 
 - **One-Hot** ist am anschaulichsten, braucht aber die meisten Variablen und die dichtesten Kopplungen.
 - **Domain Wall** spart vor allem Kopplungen (Kette statt Clique) bei fast gleicher Variablenzahl – solange wenige Aufträge um dieselben Roboter konkurrieren. Jedes konkurrierende Paar kostet $3R - 5$ statt $R$ Kopplungen, bei $R = 4$ kippt der Vorteil ab 4 Aufträgen (siehe Nachtrag im [Domain-Wall-Kapitel](domain_wall/README.md)). Die Kettenstrafe muss doppelt so stark sein wie die Spaltenstrafe.
-- **Binary** spart die meisten Variablen. Dafür entstehen Terme höheren Grades, Hilfsbits und große Koeffizienten, also höhere Präzisionsanforderungen.
+- **Binary** spart die meisten Variablen. Dafür entstehen Terme höheren Grades, Hilfsbits und große Koeffizienten, also höhere Präzisionsanforderungen. Die Hilfsbit-Strafe muss mit der Zahl der Aufträge wachsen (siehe Nachtrag im [Binary-Kapitel](binary/README.md)).
 
 Welche Kodierung für welche Hardware passt, ist Thema der späteren Stufen (siehe [docs/ARCHITEKTUR.md](../docs/ARCHITEKTUR.md)).
 
@@ -82,7 +88,7 @@ encodings/
 ├── binary/            ← gleiches Schema
 ├── reihenfolge/       ← One-Hot mit Reihenfolge: nur README, interaktiv im Lernlabor
 ├── formulations.py    ← feste Formulierungen (One-Hot, mit Reihenfolge), exaktes Optimum
-├── baukasten.py       ← Formulierungen aus Bausteinen: Gruppenregeln f(n), Nachbarplatz-Regeln, Kosten
+├── baukasten.py       ← Formulierungen aus Bausteinen, Kodierung je Auftrag (One-Hot, Domain Wall, Binary, gemischt)
 └── cost_model.py      ← Bewertungskriterien
 ```
 

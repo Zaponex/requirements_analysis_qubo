@@ -1,5 +1,6 @@
 // Einstieg: lädt die Laufliste, verwaltet Reiter/Ansichten (über den URL-Hash) und die Laufauswahl.
-// Hash-Schema: #/<reiter>/<ansicht>?param=wert   z.B. #/daten/zeitreise?t=330, #/kodierungen/one-hot?schritt=4
+// Hash-Schema: #/<reiter>/<ansicht>?param=wert   z.B. #/daten/zeitreise?t=330, #/ia/one-hot?schritt=4
+// Kodierungen getrennt nach Problemklasse (Gerkey & Matarić 2004): ia = Sofortzuweisung, ta = mit Reihenfolge.
 import { el, safeStorage } from './util.js';
 import { renderOverview } from './views/overview.js';
 import { renderReplay } from './views/replay.js';
@@ -7,9 +8,13 @@ import { renderMatrix } from './views/matrix.js';
 import { renderCharts } from './views/charts.js';
 import { renderCompare } from './views/compare.js';
 import { renderOneHot } from './views/onehot.js';
+import { renderIaOneHot } from './views/iaOnehot.js';
+import { renderIaDomainWall } from './views/iaDomainWall.js';
+import { renderIaBinary } from './views/iaBinary.js';
 import { renderSequence } from './views/sequence.js';
 import { renderBaukasten } from './views/baukasten.js';
 import { renderDomainWall } from './views/domainwall.js';
+import { renderBinary } from './views/binary.js';
 
 const TABS = {
   daten: [
@@ -19,14 +24,21 @@ const TABS = {
     { key: 'auswertungen', label: 'Auswertungen', render: renderCharts },
     { key: 'vergleich', label: 'Lauf-Vergleich', render: renderCompare },
   ],
-  kodierungen: [
+  ia: [
+    { key: 'one-hot', label: 'One-Hot', render: renderIaOneHot },
+    { key: 'domain-wall', label: 'Domain Wall', render: renderIaDomainWall },
+    { key: 'binary', label: 'Binary', render: renderIaBinary },
+  ],
+  ta: [
     { key: 'one-hot', label: 'One-Hot', render: renderOneHot },
     { key: 'reihenfolge', label: 'One-Hot + Reihenfolge', render: renderSequence },
-    { key: 'baukasten', label: 'Formel-Baukasten', render: renderBaukasten },
     { key: 'domain-wall', label: 'Domain Wall', render: renderDomainWall },
-    { key: 'binary', label: 'Binary', soon: true },
+    { key: 'binary', label: 'Binary', render: renderBinary },
+    { key: 'baukasten', label: 'Formel-Baukasten', render: renderBaukasten },
   ],
 };
+// Alte Links (vor der Trennung IA/TA) zeigen auf die Seiten der Zuweisung mit Reihenfolge
+const TAB_ALIASES = { kodierungen: 'ta' };
 
 const state = { runs: [], runId: null, dataDir: '', cleanup: null, cache: new Map() };
 const viewEl = () => document.getElementById('view');
@@ -51,7 +63,9 @@ async function loadRun(runId) {
 
 function currentRoute() {
   const [path, query] = location.hash.replace(/^#\/?/, '').split('?');
-  const [tabKey, viewKey] = path.split('/');
+  const [rawTab, viewKey] = path.split('/');
+  const tabKey = TAB_ALIASES[rawTab] || rawTab;
+  if (tabKey !== rawTab) history.replaceState(null, '', `#/${tabKey}/${viewKey || ''}${query ? `?${query}` : ''}`);
   const tab = TABS[tabKey] ? tabKey : 'daten';
   const views = TABS[tab].filter((v) => !v.soon);
   const view = views.find((v) => v.key === viewKey) || views[0];

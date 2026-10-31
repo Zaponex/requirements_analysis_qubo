@@ -1,5 +1,8 @@
 """Tests der One-Hot-Formulierung (encodings/formulations.py) und des Website-Endpunkts.
 
+Standard ohne Spaltenregel: Doppelbelegung ist zulässig, das Minimum nimmt je Auftrag den billigsten
+Roboter. Das Kapitel-Beispiel rechnet die strengere Variante mit Spaltenregel (column_rule=True).
+
 Aufruf (aus dem Projektordner):  python -m pytest tests
 """
 from __future__ import annotations
@@ -32,14 +35,26 @@ def states(n: int):
     return itertools.product([0, 1], repeat=n)
 
 
+def test_ohne_spaltenregel_ist_doppelbelegung_zulaessig(payload):
+    """Standard: nur Zeilenregel – beide Aufträge nehmen ihren billigsten Roboter, auch wenn es derselbe ist."""
+    inst = build_instance(payload["tasks"], payload["fleet"], [1, 2])
+    form = one_hot(inst)
+    assert form["n"] == 8 and not any(r["kind"] == "spalte" for r in form["rules"])
+    assert sum(1 for e in form["entries"] if e["i"] != e["j"]) == 12  # nur je Zeile C(4, 2) = 6
+    best = min(states(form["n"]), key=lambda x: energy_qubo(form, list(x), 50, 0))
+    chosen = {(inst["variables"][i]["task_id"], inst["variables"][i]["robot_id"]) for i, b in enumerate(best) if b}
+    assert chosen == {(1, 62), (2, 62)}  # beide R62: 10 + 8
+    assert energy_qubo(form, list(best), 50, 0) == 18
+
+
 def test_beispiel_aus_dem_kapitel(payload):
-    """Gleiche Zahlen wie encodings/one_hot/README.md: Kosten, Minimum, Kopplungen."""
+    """Gleiche Zahlen wie encodings/one_hot/README.md (strengere Variante mit Spaltenregel)."""
     inst = build_instance(payload["tasks"], payload["fleet"], [1, 2])
     costs = {(v["task_id"], v["robot_id"]): v["cost"] for v in inst["variables"]}
     assert [costs[(1, r)] for r in (61, 62, 63, 64)] == [35, 10, 18, 49]
     assert [costs[(2, r)] for r in (61, 62, 63, 64)] == [29, 8, 24, 43]
 
-    form = one_hot(inst)
+    form = one_hot(inst, column_rule=True)
     assert form["n"] == 8
     assert sum(1 for e in form["entries"] if e["i"] != e["j"]) == 16
     best = min(states(form["n"]), key=lambda x: energy_qubo(form, list(x), 50, 50))
@@ -61,12 +76,13 @@ def test_regeln_und_matrix_stimmen_ueberein(payload, mode):
     groups = [ids[:3] for ids in by_time.values() if len(ids) >= 2]
     assert groups
     for ids in groups:
-        form = one_hot(build_instance(payload["tasks"], payload["fleet"], ids, mode))
-        if form["n"] > 12:
-            continue
-        for x in states(form["n"]):
-            for A, B in ((50, 50), (5, 80), (0, 0)):
-                assert energy_qubo(form, list(x), A, B) == pytest.approx(energy_rules(form, list(x), A, B))
+        for column_rule in (False, True):
+            form = one_hot(build_instance(payload["tasks"], payload["fleet"], ids, mode), column_rule)
+            if form["n"] > 12:
+                continue
+            for x in states(form["n"]):
+                for A, B in ((50, 50), (5, 80), (0, 0)):
+                    assert energy_qubo(form, list(x), A, B) == pytest.approx(energy_rules(form, list(x), A, B))
 
 
 def test_kandidaten_modus_laesst_belegte_roboter_weg(payload):

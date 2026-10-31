@@ -11,9 +11,9 @@ export const DW_FORMULA_TABS = [
   { key: 'qubo', label: '③ Ausmultipliziert → QUBO' },
   { key: 'wirkung', label: '④ Wirkung der Terme' },
 ];
-export const DW_DEFAULT_TAB = { 3: 'formel', 4: 'wirkung', 5: 'eingesetzt', 6: 'qubo' };
+export const DW_DEFAULT_TAB = { 3: 'formel', 4: 'wirkung', 5: 'qubo' };
 const SWEEP_MAX_BITS = 16;
-const ALL = { kosten: true, kette: true, spalte: true };
+const ALL = { kosten: true, kette: true };
 
 const fmt = (v) => nf(v, 1).replace('-', '−');
 const signed = (v) => (v < 0 ? `− ${fmt(-v)}` : `+ ${fmt(v)}`);
@@ -38,11 +38,8 @@ export function decodeChains(form, x) {
     if (!c.ch.robots.length) issues.push({ kind: 'leer', task: c.ch.task_id, text: `#${c.ch.task_id}: kein Roboter – nicht darstellbar` });
     else if (!c.valid) issues.push({ kind: 'kette', task: c.ch.task_id, text: `#${c.ch.task_id}: ${c.down.length + c.up.length} Wände` });
   }
-  const used = new Map();
+  const used = new Map(); // Doppelbelegung ist zulässig – nur gezählt, kein Verstoß
   for (const c of chains) if (c.valid) used.set(c.robot, [...(used.get(c.robot) || []), c.ch.task_id]);
-  for (const [r, ts] of used) {
-    if (ts.length > 1) issues.push({ kind: 'spalte', robot: r, text: `R${r} fährt ${ts.length} Aufträge (${ts.map((t) => `#${t}`).join(', ')})` });
-  }
   return { chains, issues, valid: issues.length === 0, used };
 }
 
@@ -111,7 +108,7 @@ export function createDwFormulaPanel(host, api) {
   const linVal = (e, x) => e.const + Object.entries(e.terms).reduce((acc, [i, c]) => acc + c * x[Number(i)], 0);
   const offNote = (s, kind) => {
     if (s.terms[kind]) return '';
-    const stepOf = { kosten: 3, kette: 4, spalte: 5 }[kind];
+    const stepOf = { kosten: 3, kette: 4 }[kind];
     return s.step < stepOf ? `kommt in Schritt ${stepOf}` : 'gerade ausgeschaltet';
   };
   const taskChips = (s) => form(s).chains.filter((c) => c.robots.length > 1)
@@ -129,29 +126,25 @@ export function createDwFormulaPanel(host, api) {
     };
     const costs = s.data.instance.variables.map((v) => v.cost);
     body.innerHTML = `
-      <p class="fx-intro">Das ist die komplette Domain-Wall-Formulierung. Statt Schaltern <i>x</i><sub>t,r</sub> gibt es je Auftrag eine Kette aus Bits
-        <i>b</i><sub>t,1</sub> … <i>b</i><sub>t,R−1</sub>. Fahre über eine Zeile, um die betroffenen Bits zu sehen.</p>
+      <p class="fx-intro">Die komplette Domain-Wall-Formulierung: je Auftrag eine Kette <i>b</i><sub>t,1</sub> … <i>b</i><sub>t,R−1</sub>. Hover zeigt die Bits eines Terms.</p>
       <div class="fx">
         ${line('kosten', '<i>E</i>(<i>b</i>) =', 'Σ<sub><i>t</i></sub> Σ<sub><i>k</i></sub> <i>c</i><sub><i>t</i>,<i>k</i></sub> · δ<sub><i>t</i>,<i>k</i></sub>',
-    `<b>Kosten.</b> δ ist 1 genau an der Wand – dort zahlt der Auftrag die Kosten des Roboters <i>k</i> seiner Kette (${s.data.instance.criterion.label}).`)}
+    `<b>Kosten:</b> δ = 1 genau an der Wand – dort zahlt der Auftrag die Kosten seines <i>k</i>-ten Roboters (${s.data.instance.criterion.label}).`)}
         ${line('kette', '+', '<i>A</i> · Σ<sub><i>t</i></sub> Σ<sub><i>i</i></sub> <i>b</i><sub><i>t</i>,<i>i</i>+1</sub> ( 1 − <i>b</i><sub><i>t</i>,<i>i</i></sub> )',
-    '<b>Kettenregel.</b> Eine 1 rechts von einer 0 (Wand 0 → 1) kostet A. Ohne solche Wände bleibt genau eine Wand – genau ein Roboter.')}
-        ${line('spalte', '+', '<i>B</i> · Σ<sub><i>r</i></sub> Σ<sub><i>t</i> &lt; <i>t</i>′</sub> δ<sub><i>t</i>,<i>r</i></sub> · δ<sub><i>t</i>′,<i>r</i></sub>',
-    '<b>Spaltenregel.</b> Zeigen zwei Wände auf denselben Roboter, sind beide δ = 1 → B.')}
+    '<b>Kettenregel:</b> jede Wand 0 → 1 kostet A; ohne sie bleibt genau eine Wand = ein Roboter.')}
         <div class="fx-line" style="border-color:${C.axis}" ${hl({ all: true })}><span class="fx-lhs">mit</span>
           <span class="fx-term">δ<sub><i>t</i>,<i>k</i></sub> = <i>b</i><sub><i>t</i>,<i>k</i>−1</sub> − <i>b</i><sub><i>t</i>,<i>k</i></sub>,&nbsp; <i>b</i><sub><i>t</i>,0</sub> = 1,&nbsp; <i>b</i><sub><i>t</i>,<i>R</i></sub> = 0</span>
-          <span class="fx-note">Die Ränder sind fest. δ ist eine <b>Differenz zweier Bits</b> – linear. Deshalb bleiben Kosten linear und die Spaltenregel quadratisch.</span></div>
+          <span class="fx-note">Feste Ränder; δ ist eine <b>Differenz zweier Bits</b> (linear) – die Kosten bleiben linear. Keine Spaltenregel: Doppelbelegung ist zulässig.</span></div>
       </div>
       <table class="data symbols">
         <thead><tr><th>Symbol</th><th>Bedeutung</th><th>in diesem Szenario</th></tr></thead>
         <tbody>
-          <tr ${hl({ all: true })}><td><i>t</i></td><td>ein Auftrag – eine Kette</td><td>${f.chains.map((c) => `#${c.task_id}`).join(', ')}</td></tr>
-          <tr ${hl({ all: true })}><td><i>k</i> = 1 … <i>R<sub>t</sub></i></td><td>Position eines Roboters in der Kette von <i>t</i> (${f.order === 'kosten' ? 'billigster zuerst' : 'nach Nummer'})</td>
+          <tr ${hl({ all: true })}><td><i>t</i></td><td>Auftrag (Kette)</td><td>${f.chains.map((c) => `#${c.task_id}`).join(', ')}</td></tr>
+          <tr ${hl({ all: true })}><td><i>k</i> = 1 … <i>R<sub>t</sub></i></td><td>Roboterposition in der Kette (${f.order === 'kosten' ? 'billigster zuerst' : 'nach Nummer'})</td>
             <td>${f.chains.map((c) => `#${c.task_id}: ${c.robots.map((r) => `R${r}`).join(' ')}`).join(' · ')}</td></tr>
-          <tr ${hl({ kind: 'kosten' })}><td><i>b</i><sub><i>t</i>,<i>i</i></sub> ∈ {0, 1}</td><td>Bit <i>i</i> der Kette von <i>t</i> – später ein Qubit</td><td>${f.n} Bits (One-Hot: ${s.data.one_hot.n})</td></tr>
-          <tr ${hl({ kind: 'kosten' })}><td><i>c</i><sub><i>t</i>,<i>k</i></sub></td><td>Kosten, wenn der <i>k</i>-te Roboter der Kette <i>t</i> übernimmt</td><td>${costs.length ? `${fmt(Math.min(...costs))} … ${fmt(Math.max(...costs))} ${unit(s)}` : '–'}</td></tr>
-          <tr ${hl({ kind: 'kette' })}><td><i>A</i></td><td>Strafgewicht der Kettenregel</td><td>${fmt(s.A)} (Regler)</td></tr>
-          <tr ${hl({ kind: 'spalte' })}><td><i>B</i></td><td>Strafgewicht der Spaltenregel</td><td>${fmt(s.B)} (Regler)</td></tr>
+          <tr ${hl({ kind: 'kosten' })}><td><i>b</i><sub><i>t</i>,<i>i</i></sub> ∈ {0, 1}</td><td>Bit = Qubit der Kette</td><td>${f.n} Bits (One-Hot: ${s.data.one_hot.n})</td></tr>
+          <tr ${hl({ kind: 'kosten' })}><td><i>c</i><sub><i>t</i>,<i>k</i></sub></td><td>Kosten des <i>k</i>-ten Roboters</td><td>${costs.length ? `${fmt(Math.min(...costs))} … ${fmt(Math.max(...costs))} ${unit(s)}` : '–'}</td></tr>
+          <tr ${hl({ kind: 'kette' })}><td><i>A</i></td><td>Gewicht Kettenregel</td><td>${fmt(s.A)} (Regler)</td></tr>
         </tbody>
       </table>`;
   }
@@ -181,19 +174,10 @@ export function createDwFormulaPanel(host, api) {
         formula: `<i>A</i>·[ ${pairs.map(([a, b]) => `${bHtml(s, b)}(1 − ${bHtml(s, a)})`).join(' + ')} ]`,
         subst: `${fmt(s.A)}·[ ${pairs.map(([a, b]) => `${bit(x[b])}·(1 − ${bit(x[a])})`).join(' + ')} ] = ${fmt(s.A)}·${ups}`, value: val, ok: ups === 0 });
     }
-    for (const r of f.rules.filter((rr) => rr.kind === 'spalte')) {
-      const d1 = linVal(r.deltas[0], x);
-      const d2 = linVal(r.deltas[1], x);
-      const val = s.B * d1 * d2;
-      if (s.terms.spalte) total += val;
-      rows.push({ kind: 'spalte', sel: { robot: r.robot_id }, name: `R${r.robot_id}: #${r.tasks[0]} & #${r.tasks[1]}`,
-        formula: `<i>B</i>·${linHtml(s, r.deltas[0])}·${linHtml(s, r.deltas[1])}`,
-        subst: `${fmt(s.B)}·${linHtml(s, r.deltas[0], x)}·${linHtml(s, r.deltas[1], x)} = ${fmt(s.B)}·${d1}·${d2}`, value: val, ok: d1 * d2 <= 0 });
-    }
     const cls = (k) => (k === 'kette' ? 'zeile' : k);
     body.innerHTML = `
-      <p class="fx-intro">Die Formel mit den <b>Zahlen dieses Szenarios</b> und deiner <b>aktuellen Bitstellung</b>, Zeile für Zeile.
-        Eine <b class="one">1</b> ist ein gesetztes Bit. Beachte: An einer falschen Wand wird δ = −1 – dann kann die Spaltenregel negativ werden.</p>
+      <p class="fx-intro">Die Formel mit den Zahlen dieses Szenarios und deinen Bits (<b class="one">1</b> = gesetzt). An einer falschen Wand ist δ = −1 –
+        die Kosten werden dann zu Phantasiewerten.</p>
       <div class="table-wrap"><table class="data fx-table">
         <thead><tr><th>Term</th><th>Formel mit Zahlen</th><th>mit deinen Bits eingesetzt</th><th class="num">Wert</th></tr></thead>
         <tbody>${rows.map((r) => {
@@ -220,66 +204,44 @@ export function createDwFormulaPanel(host, api) {
     const LIMIT = 30;
     const Ep = penaltyEnergy(s);
     const Eq = energy(model, s.x);
-    let tele = '<p class="hint">Diese Kette hat nur einen Roboter – nichts zu zeigen.</p>';
+    let tele = '<p class="hint">Nur ein Roboter – nichts zu zeigen.</p>';
     let chainHtml = '';
-    let colHtml = '<p class="hint">Kein anderer Auftrag teilt sich hier einen Roboter mit diesem – keine Spaltenregel.</p>';
     if (ch && ch.robots.length > 1) {
       const diffs = ch.bits.map((i, k) => `<span class="p-lin" ${hl({ vars: [i] })}>${signed(ch.costs[k + 1] - ch.costs[k])}·${bHtml(s, i)}</span>`).join(' ');
       tele = `<div class="fx-derivation t-kosten${s.terms.kosten ? '' : ' off'}" ${hl({ task: ch.task_id })}>
           <div>${ch.costs.map((c, k) => `${fmt(c)}·${deltaHtml(s, ch, k)}`).join(' + ')}</div>
           <div><span class="eq">=</span> <span class="p-const">${fmt(ch.costs[0])}</span> ${diffs}</div>
-          <div class="why"><span class="p-const">Konstante: Kosten des ersten Roboters (R${ch.robots[0]})</span> ·
-            <span class="p-lin">je Bit die Differenz zum nächsten Roboter – jedes Bit schiebt die Wand eine Stufe weiter</span>.
-            Jedes Bit taucht in zwei δ auf, einmal mit +, einmal mit −: alles andere hebt sich weg (Teleskopsumme).</div>
+          <div class="why"><span class="p-const">Konstante: Kosten von R${ch.robots[0]}</span> ·
+            <span class="p-lin">je Bit die Differenz zum nächsten Roboter (schiebt die Wand eine Stufe)</span>. Jedes Bit steht in zwei δ, einmal +, einmal −: der Rest hebt sich weg.</div>
         </div>`;
       const pairs = ch.bits.slice(1).map((i, k) => [ch.bits[k], i]);
       chainHtml = pairs.length
         ? `<div class="fx-derivation t-zeile${s.terms.kette ? '' : ' off'}" ${hl({ task: ch.task_id })}>
             <div><i>A</i>·<i>b</i><sub>i+1</sub>(1 − <i>b</i><sub>i</sub>) <span class="eq">=</span> <span class="p-lin"><i>A</i>·<i>b</i><sub>i+1</sub></span> <span class="p-pair">− <i>A</i>·<i>b</i><sub>i</sub><i>b</i><sub>i+1</sub></span></div>
             <div><span class="eq">=</span> ${pairs.map(([a, b]) => `<span class="p-lin">+ ${fmt(s.A)}·${bHtml(s, b)}</span> <span class="p-pair">− ${fmt(s.A)}·${bHtml(s, a)}${bHtml(s, b)}</span>`).join(' ')}</div>
-            <div class="why">Eine 1 kostet A … außer ihr linker Nachbar ist auch 1 – dann wird A erstattet. ${bHtml(s, ch.bits[0])} hat keinen Preis: Links von ihm steht die feste 1.
-              Nur <b>direkte Nachbarn</b> sind gekoppelt (${pairs.length} Kopplungen statt ${(ch.robots.length * (ch.robots.length - 1)) / 2} bei One-Hot).</div>
+            <div class="why">Eine 1 kostet A, außer ihr linker Nachbar ist 1 (dann erstattet). ${bHtml(s, ch.bits[0])} ist frei – links steht die feste 1.
+              Nur <b>direkte Nachbarn</b> gekoppelt: ${pairs.length} Kopplungen statt ${(ch.robots.length * (ch.robots.length - 1)) / 2} (One-Hot).</div>
           </div>`
-        : '<p class="hint">Die Kette hat nur ein Bit – keine Kettenregel nötig.</p>';
-      const r = f.rules.find((rr) => rr.kind === 'spalte' && rr.tasks.includes(ch.task_id));
-      if (r) {
-        const [d1, d2] = r.deltas;
-        const terms = [];
-        const c0 = d1.const * d2.const;
-        if (c0) terms.push(`<span class="p-const">${signed(c0 * s.B)}</span>`);
-        for (const [i, c] of Object.entries(d1.terms)) if (d2.const) terms.push(`<span class="p-lin">${signed(c * d2.const * s.B)}·${bHtml(s, Number(i))}</span>`);
-        for (const [j, c] of Object.entries(d2.terms)) if (d1.const) terms.push(`<span class="p-lin">${signed(c * d1.const * s.B)}·${bHtml(s, Number(j))}</span>`);
-        for (const [i, ci] of Object.entries(d1.terms)) {
-          for (const [j, cj] of Object.entries(d2.terms)) terms.push(`<span class="p-pair">${signed(ci * cj * s.B)}·${bHtml(s, Number(i))}${bHtml(s, Number(j))}</span>`);
-        }
-        colHtml = `<div class="fx-derivation t-spalte${s.terms.spalte ? '' : ' off'}" ${hl({ robot: r.robot_id })}>
-            <div>Roboter R${r.robot_id} in den Ketten von #${r.tasks[0]} und #${r.tasks[1]}: <i>B</i>·${linHtml(s, d1)}·${linHtml(s, d2)}</div>
-            <div><span class="eq">=</span> ${terms.join(' ')}</div>
-            <div class="why">Jedes Produkt zweier Differenzen gibt bis zu vier Terme. Bits an gleicher Stelle bekommen +B, versetzte −B – zusammen über alle Roboter
-              die „Leiter mit gekreuzten Sprossen“ aus dem Lesekapitel: <b>3R − 5</b> Kopplungen je Auftragspaar (One-Hot: R).</div>
-          </div>`;
-      }
+        : '<p class="hint">Nur ein Bit – keine Kettenregel nötig.</p>';
     }
     body.innerHTML = `
-      <p class="fx-intro">Ein QUBO darf nur einzelne Bits und Bit-Paare enthalten. Bei Domain Wall ist dafür wenig zu tun: Die Kosten werden durch die
-        <b>Teleskopsumme</b> linear, die Kettenregel ist schon ein Produkt zweier Nachbarn, und die Spaltenregel ist ein Produkt zweier Differenzen.</p>
+      <p class="fx-intro">Eine QUBO kennt nur Bits und Paare – bei Domain Wall geschenkt: Kosten linear (<b>Teleskopsumme</b>), Kettenregel = Nachbarprodukt.
+        Ohne Spaltenregel gibt es keine Kopplung zwischen Ketten.</p>
       <h4>Am Beispiel von Auftrag ${taskChips(s)}</h4>
       <h4>Kosten: die Teleskopsumme</h4>${tele}
       <h4>Kettenregel: nur Nachbarn</h4>${chainHtml}
-      <h4>Spaltenregel: Produkt zweier Differenzen</h4>${colHtml}
-      <h4>Wohin wandert welcher Teil in der QUBO-Matrix?</h4>
+      <h4>Wohin wandert jeder Teil?</h4>
       <table class="data fx-table">
         <thead><tr><th>Herkunft</th><th>Formelteil</th><th>landet in</th><th class="num">Wert hier</th></tr></thead>
         <tbody>
           <tr class="t-row t-kosten" ${hl({ kind: 'kosten' })}><td>Kosten</td><td><i>c</i><sub>t,1</sub></td><td>Konstante (verschiebt nur)</td><td class="num">${fmt(f.const.c)}</td></tr>
           <tr class="t-row t-kosten" ${hl({ kind: 'kosten' })}><td>Kosten</td><td>(<i>c</i><sub>t,k+1</sub> − <i>c</i><sub>t,k</sub>)·<i>b</i><sub>t,k</sub></td><td>Diagonale</td><td class="num">Differenzen</td></tr>
           <tr class="t-row t-zeile" ${hl({ kind: 'kette' })}><td>Kettenregel</td><td>+ <i>A</i>·<i>b</i><sub>i+1</sub> &nbsp; − <i>A</i>·<i>b</i><sub>i</sub><i>b</i><sub>i+1</sub></td><td>Diagonale · Kopplung <b>direkter Nachbarn</b></td><td class="num">${fmt(s.A)} · ${fmt(-s.A)}</td></tr>
-          <tr class="t-row t-spalte" ${hl({ kind: 'spalte' })}><td>Spaltenregel</td><td>±<i>B</i>·<i>b</i><i>b</i>′, ±<i>B</i>·<i>b</i></td><td>Kopplung <b>zwischen Ketten</b> (gleiche und versetzte Stelle), am Rand Diagonale/Konstante</td><td class="num">±${fmt(s.B)}</td></tr>
         </tbody>
       </table>
-      <h4>Die fertige QUBO-Form – genau das bekommt die Hardware</h4>
+      <h4>Fertige QUBO-Form – das bekommt die Hardware</h4>
       <div class="fx-qubo"><i>E</i>(<i>b</i>) = ${termHtml.slice(0, LIMIT).join(' ')}${termHtml.length > LIMIT ? ` <span class="hint">… und ${termHtml.length - LIMIT} weitere Terme</span>` : ''} <span class="q-term">${signed(model.constant)}</span></div>
-      <p class="fx-probe">Probe mit deinen Bits: Formel ergibt <b>${fmt(Ep)}</b>, QUBO-Form ergibt <b>${fmt(Eq)}</b>
+      <p class="fx-probe">Probe mit deinen Bits: Formel <b>${fmt(Ep)}</b>, QUBO-Form <b>${fmt(Eq)}</b>
         ${Math.abs(Ep - Eq) < 1e-6 ? '<span class="okline">✓ identisch</span>' : '<span class="warnline">✗ Abweichung</span>'}</p>`;
     bindChips();
   }
@@ -291,7 +253,6 @@ export function createDwFormulaPanel(host, api) {
     for (const r of form(s).rules) {
       if (r.kind === 'kosten' && s.terms.kosten) e += r.costs.reduce((acc, c, k) => acc + c * linVal(r.deltas[k], x), 0);
       if (r.kind === 'kette' && s.terms.kette) e += s.A * x[r.vars[1]] * (1 - x[r.vars[0]]);
-      if (r.kind === 'spalte' && s.terms.spalte) e += s.B * linVal(r.deltas[0], x) * linVal(r.deltas[1], x);
     }
     return e;
   }
@@ -301,34 +262,30 @@ export function createDwFormulaPanel(host, api) {
     const f = form(s);
     const ch = f.chains.find((c) => c.task_id === task);
     const sweepA = el('div', { class: 'chart short' });
-    const sweepB = el('div', { class: 'chart short' });
     const statesHost = el('div');
     fill(body,
-      el('p', { class: 'fx-intro', html: `Wie wirken die Terme? Links alle Stellungen <b>einer Kette</b> – mit „Phantasiewerten“ für ungültige Ketten.
-        Unten: Ab welchem A bzw. B wird das Minimum <b>gültig</b>? Klick in die Kurve setzt den Regler.` }),
+      el('p', { class: 'fx-intro', html: `Oben: alle Stellungen <b>einer Kette</b>, ungültige mit Phantasiewert. Unten: Ab welchem A ist das Minimum
+        <b>gültig</b>? Klick setzt den Regler.` }),
       el('h4', { html: `Alle Stellungen der Kette von Auftrag ${taskChips(s)}` }), statesHost,
       el('div', { class: 'grid grid-2' },
-        el('div', {}, el('h4', {}, 'Wie groß muss A sein? (Kettenregel)'), sweepA, el('p', { class: 'hint', 'data-sweep': 'A' })),
-        el('div', {}, el('h4', {}, 'Wie groß muss B sein? (Spaltenregel)'), sweepB, el('p', { class: 'hint', 'data-sweep': 'B' }))));
+        el('div', {}, el('h4', {}, 'Wie groß muss A sein? (Kettenregel)'), sweepA, el('p', { class: 'hint', 'data-sweep': 'A' }))));
     bindChips();
     renderStates(s, ch, statesHost);
-    for (const [key, div] of [['A', sweepA], ['B', sweepB]]) {
+    for (const [key, div] of [['A', sweepA]]) {
       const res = drawSweep(s, key, div);
       const note = body.querySelector(`[data-sweep="${key}"]`);
       if (!res || !note) continue;
-      const rule = key === 'A' ? 'die Kettenregel' : 'die Spaltenregel';
+      const rule = 'die Kettenregel';
       const below = res.lo != null ? [...res.pts].reverse().find((p) => !p.valid && p.val < res.lo) : null;
       const above = res.bounded ? res.pts.find((p) => !p.valid && p.val > res.hi) : null;
       const parts = [];
-      if (res.lo == null) parts.push('Im gezeigten Bereich wird das Minimum nie gültig – mehr Aufträge als freie Roboter? Domain Wall kann keinen Auftrag liegen lassen.');
-      else if (res.lo === 0 && !res.bounded) parts.push(`Hier ist das Minimum für jedes ${key} gültig – ${rule} hält schon der Rest ein.`);
-      if (below) parts.push(`Unterhalb von ${key} ≈ ${fmt(res.lo)} ist es billiger, ${rule} zu brechen – z.B. ${key} = ${fmt(below.val)}: <b>${below.desc}</b>.`);
+      if (res.lo == null) parts.push('Im Bereich nie gültig – ein Auftrag ohne möglichen Roboter ist nicht darstellbar.');
+      else if (res.lo === 0 && !res.bounded) parts.push(`Für jedes ${key} gültig – ${rule} hält schon der Rest ein.`);
+      if (below) parts.push(`Unter ${key} ≈ ${fmt(res.lo)} ist der Bruch der ${rule.replace('die ', '')} billiger, z.B. ${key} = ${fmt(below.val)}: <b>${below.desc}</b>.`);
       if (above) {
-        parts.push(`<b>Oberhalb von ${key} ≈ ${fmt(res.hi)} kippt es wieder</b> – z.B. ${key} = ${fmt(above.val)}: <b>${above.desc}</b>.
-          ${key === 'B' ? `Eine zu große Spaltenregel überstimmt die Kettenregel: An einer falschen Wand ist δ = −1, aus der Strafe wird eine Belohnung. Deshalb A = 2·B – bei One-Hot gibt es diese Obergrenze nicht.`
-    : 'Zu großes A verschiebt die Gewichte so, dass sich ein anderer Regelbruch lohnt.'}`);
+        parts.push(`<b>Über ${key} ≈ ${fmt(res.hi)} kippt es wieder</b>, z.B. ${key} = ${fmt(above.val)}: <b>${above.desc}</b>.
+          Zu großes A macht einen anderen Regelbruch lohnend.`);
       }
-      if (key === 'A' && below) parts.push(`Mit B = ${fmt(s.B)} braucht A mehr als nur die Spannweite der Kosten: An einer falschen Wand ist δ = −1, die Spaltenregel belohnt dann.`);
       note.innerHTML = parts.join(' ');
     }
   }
@@ -371,26 +328,26 @@ export function createDwFormulaPanel(host, api) {
           el('td', { class: 'num' }, `${fmt(r.cost)}${r.up > 0 ? ' (Phantasiewert)' : ''}`), el('td', { class: 'num' }, fmt(r.pen)),
           el('td', { class: 'num' }, el('b', {}, fmt(r.cost + r.pen)))))))),
       el('p', { class: 'hint', html: cheats.length
-        ? `<b>${cheats.length} ungültige Stellung(en)</b> haben einen Phantasiewert unter dem besten gültigen (${fmt(bestValid)}) – ohne Kettenregel wären sie das Minimum (orange markiert).
-          Die Kettenregel muss mindestens die Spannweite der Kosten aufwiegen: ${fmt(Math.max(...ch.costs) - Math.min(...ch.costs))}.`
-        : `Kein Phantasiewert liegt unter dem besten gültigen (${fmt(bestValid)}) – diese Kette wäre auch ohne Strafe ehrlich. Das ist Glück der Kostenreihenfolge, kein Prinzip.` }));
+        ? `<b>${cheats.length} ungültige Stellung(en)</b> (orange) liegen unter dem besten gültigen Wert ${fmt(bestValid)} – ohne Kettenregel wären sie das Minimum.
+          Die Kettenregel muss die Kostenspannweite aufwiegen: ${fmt(Math.max(...ch.costs) - Math.min(...ch.costs))}.`
+        : `Kein Phantasiewert unter dem besten gültigen (${fmt(bestValid)}) – ehrlich auch ohne Strafe, aber nur dank der Kostenreihenfolge.` }));
   }
 
   function drawSweep(s, key, div) {
     const n = form(s).n;
     if (n > SWEEP_MAX_BITS) {
-      fill(div, el('p', { class: 'hint' }, `Bei ${n} Bits zu aufwendig – die Kurve wird bis ${SWEEP_MAX_BITS} Bits berechnet.`));
+      fill(div, el('p', { class: 'hint' }, `Kurve nur bis ${SWEEP_MAX_BITS} Bits (hier ${n}).`));
       div.style.minHeight = '0';
       return null;
     }
-    const top = Math.max(100, Math.ceil((Math.max(s.A, s.B) * 2) / 10) * 10);
-    const cacheKey = `${key}|${s.A}|${s.B}|${form(s).chains.map((c) => `${c.task_id}:${c.robots}`)}|${form(s).const.c}`;
+    const top = Math.max(100, Math.ceil((s.A * 2) / 10) * 10);
+    const cacheKey = `${key}|${s.A}|${form(s).chains.map((c) => `${c.task_id}:${c.robots}`)}|${form(s).const.c}`;
     let pts = sweepCache.get(cacheKey);
     if (!pts) {
       pts = [];
       for (let k = 0; k <= 40; k += 1) {
         const val = Math.round((top * k) / 40);
-        const m = makeModel(form(s), { A: key === 'A' ? val : s.A, B: key === 'B' ? val : s.B, terms: ALL });
+        const m = makeModel(form(s), { A: val, B: 0, terms: ALL });
         const r = search(m, 1);
         const x = fromMask(r.min.mask, n);
         pts.push({ val, E: r.min.E, valid: decodeChains(form(s), x).valid, desc: api.describe(x) });
@@ -402,7 +359,7 @@ export function createDwFormulaPanel(host, api) {
     const lo = validPts.length ? validPts[0].val : null;
     const hi = validPts.length ? validPts[validPts.length - 1].val : null;
     const bounded = hi != null && !pts[pts.length - 1].valid;
-    const cur = key === 'A' ? s.A : s.B;
+    const cur = s.A;
     div.style.minHeight = '';
     plot(div, [{
       type: 'scatter', mode: 'lines+markers', x: pts.map((p) => p.val), y: pts.map((p) => p.E),
@@ -411,7 +368,7 @@ export function createDwFormulaPanel(host, api) {
       hovertemplate: `${key} = %{x}: Minimum E = %{y}<br>%{customdata[0]}<br>%{customdata[1]}<extra></extra>`,
     }], {
       margin: { l: 52, r: 10, t: 34, b: 44 },
-      xaxis: { title: { text: `Strafgewicht ${key} (${key === 'A' ? 'B' : 'A'} = ${fmt(key === 'A' ? s.B : s.A)} fest, alle Regeln an)` } },
+      xaxis: { title: { text: `Strafgewicht ${key} (Kosten und Kettenregel an)` } },
       yaxis: { title: { text: 'Energie des Minimums' } },
       shapes: [{ type: 'line', x0: cur, x1: cur, yref: 'paper', y0: 0, y1: 1, line: { color: C.accent, width: 2 } }],
       annotations: [

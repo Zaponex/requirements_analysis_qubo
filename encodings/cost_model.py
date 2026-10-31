@@ -13,11 +13,14 @@ Zwei Arten von Kriterien:
   (SEQUENCE_CRITERIA, Formulierung in formulations.one_hot_sequence); Makespan, Auslastung,
   Durchsatz und Anzahl zugewiesener Aufträge sind geplant.
 
-Wichtig: Die Diagonal-Kriterien gelten für die **Sofortzuweisung** (instantaneous assignment,
-Gerkey & Matarić 2004) – jeder Roboter bekommt je Entscheidung höchstens einen Auftrag. Nur dann
-ist c_tr eine feste Zahl. Fährt ein Roboter mehrere Aufträge nacheinander, hängen Anfahrt und
-Erledigungszeit vom Vorgänger ab; eine Summe von Erledigungszeiten lässt sich dann nicht mehr
-als eine Zahl je (Auftrag, Roboter) schreiben.
+IA_CRITERIA nennt die Kriterien der Seite „Kodierungen IA“ (Sofortzuweisung mit Spaltenregel); dort ist
+jedes davon exakt.
+
+Wichtig: Die Diagonal-Kriterien rechnen jede Zuweisung als feste Zahl c_tr (**Sofortzuweisung**,
+instantaneous assignment, Gerkey & Matarić 2004). Doppelbelegung ist zulässig – dann zählt jeder Auftrag,
+als startete sein Roboter sofort. Exakt ist das nur bei einem Auftrag je Roboter: Fährt ein Roboter
+mehrere Aufträge nacheinander, hängen Anfahrt und Erledigungszeit vom Vorgänger ab; eine Summe von
+Erledigungszeiten lässt sich dann nicht mehr als eine Zahl je (Auftrag, Roboter) schreiben.
 
 Alle Parameter sind Annahmen (nicht in den Simulationslogs enthalten) und in der Oberfläche
 einstellbar. Die Fahrgeschwindigkeit ist aus den Flotten-Snapshots grob geschätzt
@@ -54,10 +57,14 @@ CRITERIA: list[dict] = [
     {"key": "fahrzeit", "label": "Fahrzeit", "en": "Travel Time", "unit": "s",
      "goal": "die gesamte Fahrzeit möglichst klein ist",
      "formula": "c = (d_leer + d_last) / v", "params": ["v"]},
+    {"key": "wartezeit", "label": "Wartezeit", "en": "Waiting Time", "unit": "s",
+     "goal": "die Summe der Wartezeiten der Aufträge (Anfrage bis Abholung) möglichst klein ist",
+     "formula": "c = Alter der Anfrage + t_warte + d_leer/v", "params": ["v", "t_rest"],
+     "sequence_note": True},
     {"key": "bearbeitungszeit", "label": "Bearbeitungszeit", "en": "Total Processing Time", "unit": "s",
      "goal": "die Summe der Bearbeitungszeiten (Anfahrt, Beladen, Lastfahrt, Entladen) möglichst klein ist",
      "formula": "c = d_leer/v + t_lade + d_last/v + t_ent", "params": ["v", "t_lade", "t_ent"]},
-    {"key": "erledigungszeit", "label": "Erledigungszeit (ein Auftrag je Roboter)", "en": "Task Completion Time", "unit": "s",
+    {"key": "erledigungszeit", "label": "Erledigungszeit (Sofortzuweisung)", "en": "Task Completion Time", "unit": "s",
      "goal": "die Summe der Erledigungszeitpunkte (inklusive Warten auf belegte Roboter) möglichst klein ist",
      "formula": "c = t_warte + d_leer/v + t_lade + d_last/v + t_ent", "params": ["v", "t_lade", "t_ent", "t_rest"],
      "sequence_note": True},
@@ -84,10 +91,16 @@ CRITERIA: list[dict] = [
 ]
 CRITERIA_BY_KEY = {c["key"]: c for c in CRITERIA}
 
+# Sofortzuweisung (IA, Gerkey & Matarić 2004): Jeder Roboter fährt höchstens einen Auftrag. Dann ist jedes
+# dieser Kriterien exakt eine feste Zahl c_tr je Zuweisung (Reihenfolge wie in der Kriterienliste des Papers).
+IA_CRITERIA: list[str] = ["bearbeitungszeit", "erledigungszeit", "fahrzeit", "fahrstrecke", "wartezeit", "energie",
+                          "betriebskosten", "verspaetung", "durchlaufzeit"]
+IA_DEFAULT = "fahrstrecke"
+
 # Hinweis für alle Kriterien mit "sequence_note": Summen von Zeitpunkten sind nur bei Sofortzuweisung diagonal
-SEQUENCE_NOTE = ("Exakt nur, solange jeder Roboter höchstens einen Auftrag bekommt (Sofortzuweisung). Fährt ein Roboter "
-                 "mehrere Aufträge nacheinander, hängt die Erledigungszeit von den Vorgängern ab – dann braucht die QUBO "
-                 "Hilfsvariablen für die Reihenfolge.")
+SEQUENCE_NOTE = ("Exakt nur bei einem Auftrag je Roboter. Doppelbelegung ist zulässig, dann zählt die QUBO aber jeden Auftrag, "
+                 "als startete er sofort – die Wartezeit auf den Vorgänger fehlt. Mit Reihenfolge rechnet die QUBO sie über "
+                 "Hilfsvariablen.")
 
 # Kriterien der Zuweisung mit Reihenfolge (formulations.one_hot_sequence). Gewicht eines Platzes:
 # q = Platz von hinten (Erledigungszeiten summieren sich auf) oder 1 (jede Fahrt zählt genau einmal).
@@ -183,6 +196,8 @@ def criterion_parts(key: str, c: dict, p: dict[str, float]) -> list[dict]:
     if key == "durchlaufzeit":
         return [part("Alter der Anfrage", c["alter"], True), part("Warten", c["t_warte"]), part("Anfahrt", c["t_leer"]),
                 part("Beladen", p["t_lade"], True), part("Lastfahrt", c["t_last"], True), part("Entladen", p["t_ent"], True)]
+    if key == "wartezeit":
+        return [part("Alter der Anfrage", c["alter"], True), part("Warten", c["t_warte"]), part("Anfahrt", c["t_leer"])]
     if key == "verspaetung":
         return [part("Verspätung", c["versp"])]
     if key == "energie":

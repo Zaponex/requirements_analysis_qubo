@@ -21,10 +21,14 @@ sys.path.insert(0, str(ROOT / "encodings"))
 
 from checks import run_checks  # noqa: E402
 from features import WINDOW_SIZES, run_summary, task_features, task_robot_matrix  # noqa: E402
-from cost_model import CRITERIA, PARAMS, SEQUENCE_CRITERIA, SEQUENCE_NOTE, STRUCTURAL  # noqa: E402
+from cost_model import (  # noqa: E402
+    CRITERIA, CRITERIA_BY_KEY, IA_CRITERIA, PARAMS, SEQUENCE_CRITERIA, SEQUENCE_NOTE, STRUCTURAL,
+)
 from formulations import (  # noqa: E402
-    aux_estimates, best_assignment, build_instance, build_sequence_instance, default_weights, domain_wall,
-    dw_default_weights, exact_optimum, one_hot, one_hot_sequence,
+    aux_estimates, best_assignment, binary, binary_default_weights, binary_ia, build_ia_instance, build_instance,
+    build_sequence_instance, couplings, default_weights, domain_wall, domain_wall_ia, dw_default_weights, exact_optimum,
+    ia_bin_default_weights, ia_default_weights, ia_dw_default_weights, ia_sizes, ia_valid_plans, one_hot, one_hot_ia,
+    one_hot_sequence,
 )
 import baukasten  # noqa: E402
 from loader import PATH_SENTINEL_THRESHOLD, find_runs, load_run  # noqa: E402
@@ -115,6 +119,62 @@ class DataService:
             "catalog": {"criteria": CRITERIA, "structural": STRUCTURAL, "params": PARAMS, "sequence_note": SEQUENCE_NOTE},
         }
 
+    def ia_one_hot(self, run_id: str, task_ids: list[int], robot_ids: list[int] | None = None,
+                   variables: str = "kandidaten", criterion: str = "fahrstrecke", params: dict | None = None) -> dict:
+        """Sofortzuweisung (IA) mit One-Hot: Fall T : R, Formulierung, bester gültiger Plan und für jedes
+        IA-Kriterium die Spanne der c_tr und der beste Plan (Vergleich der Kriterien im selben Moment)."""
+        instance, common = self._ia_common(run_id, task_ids, robot_ids, variables, criterion, params)
+        return {**common, "formulation": one_hot_ia(instance), "weights": ia_default_weights(instance)}
+
+    def ia_domain_wall(self, run_id: str, task_ids: list[int], robot_ids: list[int] | None = None,
+                       variables: str = "kandidaten", criterion: str = "fahrstrecke", params: dict | None = None) -> dict:
+        """Sofortzuweisung (IA) mit Domain Wall: Ketten je Auftrag (T ≤ R) bzw. je Roboter (T > R), Querregel,
+        Empfehlung für A (Kette) und B (Querregel), Vergleich mit One-Hot – sonst wie ia_one_hot."""
+        instance, common = self._ia_common(run_id, task_ids, robot_ids, variables, criterion, params)
+        form = domain_wall_ia(instance)
+        oh = one_hot_ia(instance)
+        return {**common, "formulation": form, "weights": ia_dw_default_weights(instance, form),
+                "one_hot": {"n": oh["n"], "couplings": sum(1 for e in oh["entries"] if e["i"] != e["j"])}}
+
+    def ia_binary(self, run_id: str, task_ids: list[int], robot_ids: list[int] | None = None,
+                  variables: str = "kandidaten", criterion: str = "fahrstrecke", params: dict | None = None) -> dict:
+        """Sofortzuweisung (IA) mit Binary: Code je Auftrag (T ≤ R) bzw. je Roboter (T > R), Polynom, Hilfsbits, QUBO,
+        Empfehlung für A, B und M, Vergleich mit One-Hot und Domain Wall (dieser Moment und T = 1 … 6) – sonst wie ia_one_hot."""
+        instance, common = self._ia_common(run_id, task_ids, robot_ids, variables, criterion, params)
+        form = binary_ia(instance)
+        oh, dw = one_hot_ia(instance), domain_wall_ia(instance)
+        return {**common, "formulation": form, "weights": ia_bin_default_weights(instance, form),
+                "compare": {"one_hot": {"n": oh["n"], "couplings": couplings(oh)},
+                            "domain_wall": {"n": dw["n"], "couplings": couplings(dw)}},
+                "sizes": ia_sizes(len(instance["robots"]))}
+
+    def _ia_common(self, run_id: str, task_ids: list[int], robot_ids: list[int] | None, variables: str, criterion: str,
+                   params: dict | None) -> tuple[dict, dict]:
+        """Instanz, bester gültiger Plan und für jedes IA-Kriterium Spanne der c_tr und bester Plan (Vergleich im selben
+        Moment) – unabhängig von der Kodierung."""
+        if criterion not in IA_CRITERIA:
+            raise ValueError(f"Kriterium {criterion} ist in der Sofortzuweisung nicht vorgesehen")
+        p = self.payload(run_id)
+        instance = build_ia_instance(p["tasks"], p["fleet"], task_ids, robot_ids, variables, criterion, params)
+        robots = [r["robot_id"] for r in instance["robots"]]
+        overview = []
+        for key in IA_CRITERIA:
+            inst = instance if key == criterion else build_ia_instance(p["tasks"], p["fleet"], task_ids, robots, variables,
+                                                                       key, params)
+            costs = [v["cost"] for v in inst["variables"]]
+            plans = ia_valid_plans(inst)
+            overview.append({"key": key, "min": min(costs, default=0.0), "max": max(costs, default=0.0),
+                             "best": plans[0] if plans else None, "plans": len(plans)})
+        plans = ia_valid_plans(instance)
+        return instance, {
+            "run_id": run_id,
+            "instance": instance,
+            "best": plans[0] if plans else None,
+            "n_valid": len(plans),
+            "overview": overview,
+            "catalog": {"criteria": [CRITERIA_BY_KEY[k] for k in IA_CRITERIA], "params": PARAMS},
+        }
+
     def domain_wall(self, run_id: str, task_ids: list[int], variables: str = "kandidaten", criterion: str = "leerfahrt",
                     params: dict | None = None, order: str = "nummer") -> dict:
         """Lern-Instanz (wie One-Hot) + Domain-Wall-Formulierung, beste gültige Zuweisung und
@@ -130,6 +190,26 @@ class DataService:
             "weights": dw_default_weights(instance),
             "best": best_assignment(instance),
             "one_hot": {"n": oh["n"], "couplings": sum(1 for e in oh["entries"] if e["i"] != e["j"])},
+            "catalog": {"criteria": CRITERIA, "structural": STRUCTURAL, "params": PARAMS, "sequence_note": SEQUENCE_NOTE},
+        }
+
+    def binary(self, run_id: str, task_ids: list[int], variables: str = "kandidaten", criterion: str = "leerfahrt",
+               params: dict | None = None, order: str = "nummer") -> dict:
+        """Lern-Instanz + Binary-Formulierung (Polynom, Hilfsbits, QUBO), beste Zuweisung und der
+        Vergleich mit One-Hot und Domain Wall für dieselben Aufträge."""
+        p = self.payload(run_id)
+        instance = build_instance(p["tasks"], p["fleet"], task_ids, variables, criterion, params)
+        form = binary(instance, order)
+        couplings = lambda f: sum(1 for e in f["entries"] if e["i"] != e["j"])  # noqa: E731
+        oh, dw = one_hot(instance), domain_wall(instance, order)
+        return {
+            "run_id": run_id,
+            "instance": instance,
+            "formulation": form,
+            "weights": binary_default_weights(instance, form),
+            "best": best_assignment(instance),
+            "compare": {"one_hot": {"n": oh["n"], "couplings": couplings(oh)},
+                        "domain_wall": {"n": dw["n"], "couplings": couplings(dw)}},
             "catalog": {"criteria": CRITERIA, "structural": STRUCTURAL, "params": PARAMS, "sequence_note": SEQUENCE_NOTE},
         }
 
@@ -172,11 +252,17 @@ class DataService:
             raise ValueError("params muss ein Objekt sein")
         base = self._baukasten_base(run_id, task_ids, variables, criterion, slots, params)
         inst = base["instance"]
+        encodings = baukasten.resolve_encodings(inst, body.get("kodierung"))
+        order = body.get("reihenfolge") or "nummer"
+        presets = baukasten.presets(inst, encodings)
         preset = body.get("preset") or baukasten.default_preset(inst)
-        if preset not in base["presets"]:
+        preset = baukasten.PRESET_ALIASES.get(preset, preset)
+        if preset not in presets:
             raise ValueError(f"Unbekannte Voreinstellung: {preset}")
-        terms = body.get("terms") or base["presets"][preset]
-        return {**base, "terms": terms, "formulation": baukasten.build(inst, terms)}
+        form = baukasten.build(inst, body.get("terms") or presets[preset], encodings, order)
+        return {**base, "presets": presets, "default_preset": baukasten.default_preset(inst),
+                "requirements": form["requirements"], "terms": [baukasten.spec_of(t) for t in form["terms"]],
+                "formulation": form}
 
     def _baukasten_base(self, run_id: str, task_ids: list[int], variables: str, criterion: str, slots: int,
                         params: dict) -> dict:
@@ -202,9 +288,8 @@ class DataService:
                 # ohne Platzgrenze nur bei echten Ablaufplänen sinnvoll (feste c_tr kennen keine Reihenfolge)
                 "exact_free": (exact_optimum(inst, max_per_robot=n_tasks)
                                if inst["slots"] < n_tasks and inst["objective"] == "ablauf" else exact),
-                "requirements": baukasten.requirements(inst),
-                "presets": baukasten.presets(inst),
-                "default_preset": baukasten.default_preset(inst),
+                # alle gültigen Pläne (die besten): Was kostet jeder Baustein bei gültigen Plänen?
+                "plans": baukasten.valid_plans(inst),
                 "weights": baukasten.default_term_weights(inst),
                 "catalog": {"criteria": allowed,
                             "params": {k: PARAMS[k] for k in ("v", "t_lade", "t_ent", "t_rest")}},

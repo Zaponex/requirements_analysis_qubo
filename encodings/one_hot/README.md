@@ -1,5 +1,10 @@
 # One-Hot-Kodierung – „Für jeden Roboter ein Schalter“
 
+> **Stand 26.10.2026 – keine Spaltenregel mehr.** Im Projekt ist Doppelbelegung zulässig: Ein Roboter darf mehrere Aufträge übernehmen.
+> Das Lernlabor und der Standard in [`formulations.py`](../formulations.py) verwenden deshalb keine Spaltenregel. Die Abschnitte zur
+> Spaltenregel unten beschreiben die strengere Variante aus der Literatur (höchstens ein Auftrag je Roboter); sie ist mit
+> `column_rule=True` weiter nachrechenbar und im Formel-Baukasten als Baustein „Gruppe je Roboter, höchstens eine Option“ baubar.
+
 > **Kurzfassung:** Für jede mögliche Antwort auf „Welcher Roboter übernimmt den Auftrag?“ gibt es ein eigenes Bit. Genau eines davon soll auf 1 stehen – das „heiße“ Bit (*one hot*). Weil ein Quantenoptimierer keine Regeln kennt, sondern nur eine Energie minimiert, wird die Regel „genau eins“ als **Strafterm** in die Energie eingebaut. Der Preis: viele Variablen und eine Kopplung zwischen *jedem* Paar von Bits.
 
 Wir gehen in acht Schritten vor. Jeder Schritt hat ein Bild – erst das Bild anschauen, dann den Text lesen.

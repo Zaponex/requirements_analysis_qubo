@@ -1,8 +1,16 @@
 # Binary-Kodierung – „Die Roboternummer als Binärzahl“
 
+> **Stand 26.10.2026 – keine Spaltenregel mehr.** Im Projekt ist Doppelbelegung zulässig: Ein Roboter darf mehrere Aufträge übernehmen.
+> Das Lernlabor und der Standard in [`formulations.py`](../formulations.py) verwenden deshalb keine Spaltenregel. Die Abschnitte zur
+> Spaltenregel unten beschreiben die strengere Variante aus der Literatur (höchstens ein Auftrag je Roboter); sie ist mit
+> `column_rule=True` weiter nachrechenbar und im Formel-Baukasten als Baustein „Gruppe je Roboter, höchstens eine Option“ baubar.
+
 > **Kurzfassung:** Wir nummerieren die Roboter und schreiben die Nummer im Zweiersystem. Für $R$ Roboter reichen $\lceil \log_2 R \rceil$ Bits – bei 4 Robotern zwei, bei 16 Robotern vier. Das spart radikal Variablen. Der Preis: Die Bits eines Auftrags arbeiten nur noch **gemeinsam**. Regeln wie „kein Roboter doppelt“ erzeugen dadurch Terme mit drei und vier Bits, die erst mit **Hilfsbits** und großen Strafgewichten auf QUBO-Form gebracht werden müssen.
 
 Dieses Kapitel baut auf [One-Hot](../one_hot/README.md) und [Domain Wall](../domain_wall/README.md) auf und nutzt dasselbe Beispiel.
+
+> **Interaktiv:** Lernlabor, Reiter **3 · Kodierungen TA › Binary** (`python -m webapp --open`) – derselbe Weg an beliebigen echten Aufträgen, mit klickbaren Codes und Hilfsbits, die man lügen lassen kann. Formulierung: [`formulations.binary`](../formulations.py), geprüft in [`tests/test_binary.py`](../../tests/test_binary.py).
+> Sofortzuweisung (höchstens ein Auftrag je Roboter, Fälle T = R, T < R, T > R): Reiter **2 · Kodierungen IA › Binary**, [`formulations.binary_ia`](../formulations.py) – der Code liegt auf der „genau eins“-Seite, Hilfsbits nur innerhalb eines Codes (je Code höchstens 2^K − K − 1), geprüft in [`tests/test_ia_binary.py`](../../tests/test_ia_binary.py).
 
 1. [Die kürzeste Schreibweise](#schritt-1--die-kürzeste-schreibweise)
 2. [Die Roboternummer als Binärzahl](#schritt-2--die-roboternummer-als-binärzahl)
@@ -157,6 +165,22 @@ Binary lohnt sich daher vor allem dort,
 - wo die Hardware **Terme höheren Grades** direkt verarbeiten kann – etwa bei gatterbasierten Verfahren wie QAOA, wo Glos et al. (2022) genau diesen Kompromiss aus weniger Qubits und tieferen Schaltkreisen untersuchen.
 
 ---
+
+## Nachtrag aus dem Lernlabor: Binary an echten Daten
+
+**1. Allgemeine Quadratisierung.** Das Lernlabor baut die Hilfsbits nicht von Hand, sondern ersetzt immer das Paar, das in den meisten Termen vom Grad > 2 steckt (bei Gleichstand ein Paar über zwei Aufträge). Für das Beispiel ergibt das dieselben Hilfsbits $w_1 = z_{1,1} z_{2,1}$ und $w_2 = z_{1,2} z_{2,2}$, 6 Variablen und 15 Kopplungen. Der größte Koeffizient ist dort 300 statt 400, weil reine Paarterme stehen bleiben.
+
+**2. Die Hilfsbit-Strafe muss mit den Aufträgen wachsen.** Ein Hilfsbit für ein Paar über zwei Aufträge steckt in der Spaltenregel *jedes* weiteren Auftrags, der dieselben Roboter nutzt. Das nötige $M$ steigt deshalb (Lauf `2026-10-09_12-59-39`, t = 0, $B = 60$):
+
+| Aufträge | nötiges $M$ (bisektiert) | empfohlenes $M$ |
+| --- | --- | --- |
+| 2 | ≈ 120 (= 2B, wie im Kapitel) | 300 |
+| 3 | ≈ 201 | 550 |
+| 4 | ≈ 280 | 800 |
+
+Mit $M = 2B$ war das Minimum in **292 von 390** geprüften echten Momenten unzulässig oder nicht optimal. Die Empfehlung im Lernlabor probiert für jedes Hilfsbit alle Belegungen seiner Nachbarn durch und nimmt den größten Gewinn einer Lüge × 1,1. Das liegt 2- bis 3-mal über dem nötigen Wert, war aber in keinem geprüften Fall zu klein. Der Preis ist der Wertebereich: Der größte Koeffizient erreichte 6000 – die Präzisionsanforderung wächst mit der Zahl der Aufträge.
+
+**3. Auch B ist nach oben begrenzt.** Wie bei Domain Wall kippt das Minimum, wenn $B$ zu groß wird: Dann lohnt es sich, dass ein Hilfsbit lügt und eine Spaltenstrafe in eine Belohnung dreht. Im Beispiel ist das Minimum bei $M = 300$ nur für $12 \lesssim B \lesssim 144$ gültig.
 
 ## Auf einen Blick
 

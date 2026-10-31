@@ -95,6 +95,8 @@ select, input[type="number"] {
 .card-body { min-width: 0; }
 .chart { width: 100%; min-height: 360px; }
 .chart.short { min-height: 260px; }
+.chart.land-norm { height: 470px; }
+.chart.land-3d { height: 500px; }
 .btn {
   border: 1px solid var(--axis); background: var(--surface); border-radius: 7px; padding: 5px 11px; cursor: pointer;
   white-space: nowrap;
@@ -237,6 +239,19 @@ table.data tr.dim td { color: var(--muted); }
 .explain-title { font-weight: 700; margin-bottom: 4px; }
 .okline { color: var(--good-text); font-weight: 600; }
 .warnline { color: #9a5b00; }
+/* Fälle der Sofortzuweisung (T = R, T < R, T > R) – der aktuelle ist markiert */
+.case-pick { display: flex; flex-wrap: wrap; align-items: stretch; gap: 8px; margin-top: 10px; }
+.case-pick > .filter-label { align-self: center; }
+.case-btn {
+  display: grid; gap: 1px; justify-items: start; padding: 6px 14px; border-radius: 10px; cursor: pointer; text-align: left;
+  border: 1px solid var(--axis); background: var(--surface); color: var(--ink-2);
+}
+.case-btn:hover { background: var(--neutral); color: var(--ink); }
+.case-btn.current { border-color: var(--series); background: var(--series-tint); color: var(--ink); cursor: default; box-shadow: 0 0 0 2px var(--series-tint); }
+.case-label { font-weight: 700; font-size: 1rem; }
+.case-terms { font-family: "Cambria Math", "Times New Roman", serif; }
+.case-terms sub { font-size: 0.72em; }
+.case-btn .hint { font-size: 0.78rem; }
 .oh-main { grid-template-columns: minmax(0, 1.3fr) minmax(340px, 1fr); }
 .oh-main.single { grid-template-columns: 1fr; }
 @media (max-width: 1100px) { .oh-main { grid-template-columns: 1fr; } }
@@ -343,6 +358,7 @@ tr.fx-total td { font-weight: 700; border-top: 2px solid var(--ink-2); font-size
 .p-const { color: var(--ink-2); }
 .p-lin { color: #1c5cab; }
 .p-pair { color: #b5481c; }
+.p-high { color: #9a1f1f; font-weight: 700; }
 .fx-list { display: flex; flex-wrap: wrap; gap: 8px; font-family: "Cambria Math", "Times New Roman", serif; font-size: 1.05rem; }
 .fx-item { padding: 4px 10px; border-radius: 6px; background: var(--page); border: 1px solid var(--grid); cursor: default; }
 .fx-item:hover, .q-term:hover { background: var(--neutral); }
@@ -468,8 +484,65 @@ a.btn { text-decoration: none; color: inherit; display: inline-block; }
 .dw-result { font-weight: 700; white-space: nowrap; }
 .dw-result.good { color: var(--good-text); }
 .dw-result.bad { color: #9a1f1f; }
+table.xgrid { border-spacing: 4px; }
+table.xgrid td.x-cell { width: 54px; height: 38px; text-align: center; font-weight: 700; border-radius: 8px; background: var(--neutral); color: var(--muted); cursor: pointer; }
+table.xgrid td.x-cell.on { background: #e6f4e6; color: var(--good-text); }
+table.xgrid td.x-cell.neg { background: #fbe6e6; color: #9a1f1f; }
+table.xgrid td.x-cell.none { cursor: default; font-weight: 400; }
+table.xgrid td.x-cell.hl { box-shadow: inset 0 0 0 2px var(--accent); }
 .dw-usage { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 12px; }
 .dw-usage .sum { display: inline-flex; align-items: center; gap: 4px; }
 .dw-usage .sum.hl { box-shadow: inset 0 0 0 2px var(--accent); }
 tr.warnrow td { background: #fff0d6; }
 td.mono { font-family: ui-monospace, Consolas, monospace; }
+
+/* ---------------------------------------------------------------- Binary: Codes */
+.bin-row { display: grid; grid-template-columns: 200px auto 110px minmax(0, 1fr); gap: 12px; align-items: center; }
+@media (max-width: 1100px) { .bin-row { grid-template-columns: 1fr; } }
+.bin-bits { display: flex; gap: 6px; }
+.bin-code { display: grid; gap: 1px; font-weight: 700; }
+.bin-code.good { color: var(--good-text); }
+.bin-code.bad { color: #9a1f1f; }
+.bin-book { display: flex; flex-wrap: wrap; gap: 6px; }
+.bin-chip {
+  display: grid; justify-items: center; gap: 1px; padding: 4px 9px; border-radius: 8px; border: 1px solid var(--axis);
+  background: var(--surface); cursor: pointer; font-size: 0.82rem; font-variant-numeric: tabular-nums;
+}
+.bin-chip.current { border-color: var(--series); background: var(--series-tint); font-weight: 700; }
+.bin-chip.phantom { border-style: dashed; color: #9a1f1f; }
+.bin-chip.phantom.current { background: #fbe6e6; border-color: var(--bad); }
+.bin-chip.hl { box-shadow: 0 0 0 3px var(--accent); }
+.bin-aux { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 12px; padding-top: 10px; border-top: 1px dashed var(--grid); }
+.bin-aux-item { display: inline-flex; align-items: center; gap: 6px; }
+.dw-bit.lie { border-color: var(--bad) !important; box-shadow: 0 0 0 3px #fbe6e6; }
+.dw-bit.lie.on { background: var(--bad); }
+.mono { font-family: ui-monospace, Consolas, monospace; }
+
+/* ---------------------------------------------------------------- Baukasten: Kodierungen je Auftrag */
+.bk-line.bits { background: repeating-linear-gradient(135deg, var(--page), var(--page) 10px, #f1f0ec 10px, #f1f0ec 12px); }
+.bk-ind { font-size: 0.88rem; color: var(--ink-2); padding: 8px 12px; margin-bottom: 8px; border-radius: 6px; background: var(--surface); border: 1px dashed var(--grid); }
+.blk-row { display: grid; grid-template-columns: 230px minmax(0, 1fr) 190px; gap: 12px; align-items: center; padding-bottom: 10px; border-bottom: 1px solid var(--grid); }
+.blk-row:last-child { border-bottom: 0; }
+@media (max-width: 1000px) { .blk-row { grid-template-columns: 1fr; } }
+.blk-enc { font-size: 0.82rem; padding: 2px 4px; }
+.blk-bin { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+.blk-pick { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; font-weight: 400; }
+.blk-pick .chip { padding: 1px 7px; font-size: 0.75rem; }
+.dw-result { white-space: normal; }
+.bal-table td.neg-text { color: var(--series); font-weight: 700; }
+.bal-table td.pos-text { color: #9a5b00; font-weight: 700; }
+.bal-bar { height: 10px; background: var(--page); border-radius: 3px; overflow: hidden; }
+.bal-bar > div { height: 100%; }
+.bal-bar .neg { background: var(--series); }
+.bal-bar .pos { background: #eb6834; }
+tr.enc-req td { background: #f4f3ef; }
+
+/* ---------------------------------------------------------------- Strafgewichte (alle Kodierungsseiten) */
+.w-grid { display: grid; gap: 6px; margin: 6px 0; }
+.w-row { display: grid; grid-template-columns: minmax(130px, 170px) minmax(110px, 1fr) 100px auto; gap: 4px 10px; align-items: center; }
+@media (max-width: 900px) { .w-row { grid-template-columns: 1fr 1fr; } }
+.w-row .w-hint { grid-column: 2 / -1; margin-top: -2px; }
+.w-row input[type="range"] { width: 100%; accent-color: var(--series); }
+.w-label { font-size: 0.88rem; font-weight: 600; }
+.w-input { width: 100px; }
+.w-hint { font-size: 0.78rem; }
