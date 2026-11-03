@@ -130,7 +130,7 @@ export function renderOneHot(root, { run, api, params }) {
     setParam: (key, value) => { st.costParams = { ...st.costParams, [key]: value }; st.adjustWeights = true; load(); },
     resetParams: () => { st.costParams = {}; st.adjustWeights = true; load(); },
   });
-  // Register per Link: #/ta/one-hot?schritt=4&formel=qubo
+  // Register per Link: #/ta/alt-one-hot?schritt=4&formel=qubo
   if (['formel', 'eingesetzt', 'qubo', 'wirkung'].includes(params.formel)) formula.setTab(params.formel, false);
 
   // ---------------------------------------------------------------- Szenario-Auswahl
@@ -170,7 +170,7 @@ export function renderOneHot(root, { run, api, params }) {
     st.x = new Uint8Array(n);
     if (prevX.length === n) st.x.set(prevX); // gleiche Schalter (nur Kriterium geändert) → Zustand behalten
     st.resultKey = '';
-    // Startzustand per Link: #/ta/one-hot?schritt=5&zustand=gierig|minimum (nur beim ersten Laden)
+    // Startzustand per Link: #/ta/alt-one-hot?schritt=5&zustand=gierig|minimum (nur beim ersten Laden)
     if (params.zustand && !st.initialStateApplied) {
       st.initialStateApplied = true;
       if (params.zustand === 'gierig') st.x = greedy();
@@ -429,7 +429,7 @@ export function renderOneHot(root, { run, api, params }) {
         : null,
       el('a', { class: 'btn small', href: `#/ta/baukasten?auftraege=${st.selected.join(',')}&plaetze=1&kriterium=${st.criterion}${st.mode === 'alle' ? '&modus=alle' : ''}`,
         title: 'Dieselben Aufträge im Formel-Baukasten: Regeln verändern, weglassen, falsch machen' }, 'Formel verändern → Baukasten'),
-      el('a', { class: 'btn small', href: `#/ta/domain-wall?auftraege=${st.selected.join(',')}&kriterium=${st.criterion}&schritt=${st.step}`,
+      el('a', { class: 'btn small', href: `#/ta/alt-domain-wall?auftraege=${st.selected.join(',')}&kriterium=${st.criterion}&schritt=${st.step}`,
         title: 'Dieselben Aufträge mit Domain Wall: R − 1 Bits je Auftrag, Kette statt Clique' }, 'Vergleich: Domain Wall →'));
   }
 

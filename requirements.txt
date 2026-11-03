@@ -8,3 +8,10 @@ plotly>=5.24
 # Tests (tests/)
 pytest>=8
 httpx>=0.27
+# Hardware-Abbildung (hw/, run_all.py) – Versionen wie im Sandbox-Test; kein Konto nötig
+dimod==0.12.22
+minorminer==0.2.22
+dwave-networkx==0.8.19
+qiskit==2.6.1
+qiskit-ibm-runtime==0.51.0
+networkx>=3.2

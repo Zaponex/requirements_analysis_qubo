@@ -51,11 +51,12 @@ export const STAGE_ORDER = ['Roh', 'Entpackt', 'Ungerollt_Unkontr_Verpackt', 'Un
 // kosten, reihenfolge, zeile, spalte, luecke; Terme tragen immer auch eine Beschriftung.
 export const TERM_ORDER = ['kosten', 'zeile']; // keine Spaltenregel: Doppelbelegung ist zulässig
 // Domain Wall: die Kettenregel spielt die Rolle der Zeilenregel („genau ein Roboter“) und trägt deren Farbe.
-// Binary: ungültige Codes wie die Zeilenregel (orange), Hilfsbits grün.
+// Binary: ungültige Codes wie die Zeilenregel (orange), Hilfsbits grün. Lastausgleich H_WB (TA) koppelt dieselben Paare wie die
+// Spaltenregel und trägt deren Farbe (violett).
 export const TERM_COLORS = { kosten: '#2a78d6', zeile: '#eb6834', spalte: '#4a3aa7', reihenfolge: '#1baf7a', luecke: '#e87ba4', kette: '#eb6834',
-  ungueltig: '#eb6834', hilfsbit: '#1baf7a', quer: '#4a3aa7' };
+  ungueltig: '#eb6834', hilfsbit: '#1baf7a', quer: '#4a3aa7', last: '#4a3aa7' };
 export const TERM_TINTS = { kosten: '#cde2fb', zeile: '#fbe0d4', spalte: '#dedaf3', reihenfolge: '#d1efe4', luecke: '#fae5ee', kette: '#fbe0d4',
-  ungueltig: '#fbe0d4', hilfsbit: '#d1efe4', quer: '#dedaf3' };
+  ungueltig: '#fbe0d4', hilfsbit: '#d1efe4', quer: '#dedaf3', last: '#dedaf3' };
 export const TERM_LABELS = {
   kosten: 'Kosten (Anfahrt)',
   zeile: 'Zeilenregel: genau ein Roboter je Auftrag',

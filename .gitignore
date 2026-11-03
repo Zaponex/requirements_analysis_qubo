@@ -6,3 +6,4 @@ __pycache__/
 # Generierte Analyse-Ergebnisse (reproduzierbar über analysis/analysis.py)
 outputs/
 data/
+/literature

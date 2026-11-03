@@ -485,8 +485,8 @@ export function renderIaOneHot(root, { run, api, params }) {
         ? el('button', { class: 'btn small', type: 'button', disabled: !st.data.best, title: `Bester gültiger Plan durch Aufzählen aller ${nf(st.data.n_valid)} gültigen Pläne`,
           onclick: () => { st.x = planState(st.data.best); update(); } }, 'Bester gültiger Plan')
         : null,
-      el('a', { class: 'btn small', href: `#/ta/one-hot?auftraege=${st.selected.join(',')}&kriterium=${st.criterion}&schritt=${Math.min(st.step, 5)}`,
-        title: 'Dieselben Aufträge ohne Spaltenregel: Ein Roboter darf mehrere Aufträge übernehmen' }, 'Vergleich: TA-One-Hot →'));
+      el('a', { class: 'btn small', href: `#/ta/one-hot?auftraege=${st.selected.join(',')}&roboter=${robotIds().join(',')}${st.mode === 'alle' ? '&modus=alle' : ''}&schritt=${Math.min(st.step, 6)}`,
+        title: 'Dieselben Aufträge und Roboter in der TA: Ein Roboter darf mehrere Aufträge übernehmen, Ziel Lastausgleich' }, 'Vergleich: TA-One-Hot →'));
   }
 
   function renderControls() {

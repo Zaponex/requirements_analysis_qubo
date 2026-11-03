@@ -83,7 +83,7 @@ export function renderBinary(root, { run, api, params }) {
 
   root.append(el('p', {
     class: 'intro',
-    html: `Dieselbe Aufgabe wie bei <a href="#/ta/one-hot">One-Hot</a> und <a href="#/ta/domain-wall">Domain Wall</a> mit den wenigsten Bits:
+    html: `Dieselbe Aufgabe wie bei <a href="#/ta/alt-one-hot">One-Hot</a> und <a href="#/ta/alt-domain-wall">Domain Wall</a> mit den wenigsten Bits:
       je Auftrag die <b>Roboternummer als Binärzahl</b>. Preis: Indikator-Produkte – ab 5 Robotern Terme mit drei und mehr Bits, die erst <b>Hilfsbits</b> zur QUBO machen.
       Lesekapitel: <code>encodings/binary/README.md</code>.`,
   }));
@@ -489,8 +489,8 @@ export function renderBinary(root, { run, api, params }) {
       quboMode() && f.aux.length ? el('button', { class: 'btn small', type: 'button', onclick: () => { makeHonest(st.x); update(); } }, 'Hilfsbits ehrlich setzen') : null,
 el('a', { class: 'btn small', href: `#/ta/baukasten?auftraege=${st.selected.join(',')}&plaetze=1&kriterium=${st.criterion}${st.mode === 'alle' ? '&modus=alle' : ''}&kodierung=binary${st.order === 'kosten' ? '&reihenfolge=kosten' : ''}`,
         title: 'Dieselben Aufträge im Formel-Baukasten: Bausteine verändern, Kodierungen mischen, falsch machen' }, 'Formel verändern → Baukasten'),
-      el('a', { class: 'btn small', href: `#/ta/one-hot?auftraege=${st.selected.join(',')}&kriterium=${st.criterion}`, title: 'Dieselben Aufträge mit One-Hot' }, 'One-Hot →'),
-      el('a', { class: 'btn small', href: `#/ta/domain-wall?auftraege=${st.selected.join(',')}&kriterium=${st.criterion}`, title: 'Dieselben Aufträge mit Domain Wall' }, 'Domain Wall →'));
+      el('a', { class: 'btn small', href: `#/ta/alt-one-hot?auftraege=${st.selected.join(',')}&kriterium=${st.criterion}`, title: 'Dieselben Aufträge mit One-Hot' }, 'One-Hot →'),
+      el('a', { class: 'btn small', href: `#/ta/alt-domain-wall?auftraege=${st.selected.join(',')}&kriterium=${st.criterion}`, title: 'Dieselben Aufträge mit Domain Wall' }, 'Domain Wall →'));
   }
 
   function renderControls() {

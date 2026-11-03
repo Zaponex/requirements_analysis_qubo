@@ -145,15 +145,78 @@ Direktlink: `#/ia/binary?schritt=6&auftraege=1,2,3,4,5&roboter=61,62&zustand=min
 
 ### Reiter 3 · Kodierungen TA
 
-Zuweisung mit Reihenfolge (time-extended assignment): Ein Roboter darf mehrere Aufträge übernehmen. Alte Links `#/kodierungen/…` führen hierher.
+Zuweisung mit Reihenfolge (time-extended assignment, ST-SR-TA): Ein Roboter darf mehrere Aufträge übernehmen. Seit 31.10.2026 ist das
+Ziel hier nur der **Lastausgleich (Workload Balancing)**: Die Last eines Roboters ist die Summe der Arbeit seiner Aufträge – egal in welcher
+Reihenfolge. Darum kommen die Seiten ohne Positionen und Zeitraster aus; Zeitkriterien (Erledigungszeit, Makespan, Verspätung) bräuchten sie.
+Alte Links `#/kodierungen/…` führen hierher.
 
 | Ansicht | Wofür |
 | --- | --- |
-| **One-Hot** ✅ | Geführter Weg in 5 Schritten an echten Aufträgen, siehe unten |
-| **One-Hot + Reihenfolge** ✅ | Ein Roboter fährt mehrere Aufträge: Platz-Hilfsvariablen, Ablaufplan, Hardware-Vergleich, siehe unten |
-| **Domain Wall** ✅ | Derselbe geführte Weg wie bei One-Hot, mit Ketten statt Schachbrett, siehe unten |
-| **Binary** ✅ | Derselbe Weg in 6 Schritten, mit Codes, Indikator-Produkten und – ab Grad 3 – Hilfsbits, siehe unten |
-| **Formel-Baukasten** ✅ | Die Formel selbst zusammensetzen: Kodierung je Auftrag frei wählbar (auch gemischt), Bausteine auf Zuweisungs- und Bit-Ebene, auch unsinnige – mit Energiebilanz und Diagnose gegen das echte Problem, siehe unten |
+| **One-Hot** ✅ | $H = H_{obj\_OH} + A\,H_{pen1\_OH} + B\,H_{OH\_WB}$ in 6 Schritten: Szenario, Schalter, Kosten, Auftragsregel, Lastausgleich, QUBO & Hardware |
+| **Domain Wall** ✅ | Kette je Auftrag über die Roboter, $x_{t,r} = d_{t,r-1} - d_{t,r}$; 6 Schritte (Ketten, Kettenregel) |
+| **Binary** ✅ | Code je Auftrag ($K = \lceil\log_2 R\rceil$ Bits), $x_{t,r} = y_{t,r}$; 7 Schritte (Codes, ungültige Codes, Hilfsbits) |
+| Archiv: One-Hot (diagonal), One-Hot + Reihenfolge, Domain Wall (diagonal), Binary (diagonal), Formel-Baukasten ✅ | die früheren Seiten unter `#/ta/alt-one-hot`, `#/ta/reihenfolge`, `#/ta/alt-domain-wall`, `#/ta/alt-binary`, `#/ta/baukasten` |
+
+**Formulierung** ([`encodings/workload.py`](../encodings/workload.py), Notation des Users):
+
+$$H_{obj} = \sum_t\sum_r c_{t,r}\,x_{t,r},\qquad H_{WB} = \sum_r \Big(L_{r,0} + \sum_t c_{t,r}\,x_{t,r}\Big)^2$$
+
+Ausmultipliziert (One-Hot, $x^2 = x$): $B L_0^2 + B\sum (2L_0c + c^2)\,x + 2B\sum_{t<t'} c\,c'\,x\,x'$. Die Paare koppeln Aufträge am
+selben Roboter – dieselben Paare wie die Spaltenregel der IA, aber mit $2B\,c\,c'$ statt $B$. Wegen
+$\sum_r L_r^2 = (\sum_r L_r)^2/R + \sum_r (L_r - \bar L)^2$ bestraft das Quadrat Gesamtlast **und** Ungleichheit.
+
+**Was in die Last einfließt** (Karte neben den Lastbalken, Server-Parameter `last`, `anteile`, `vorlast`):
+
+- Lastmaß: Arbeitszeit (s), Fahrstrecke (Felder) oder Energie (Wh). $c_{t,r}$ gilt in $H_{obj}$ und $H_{WB}$.
+- Anteile von $c_{t,r}$: Anfahrt (je Roboter, ab der aktuellen Position – exakt nur für den ersten Auftrag eines Roboters), Beladen,
+  Lastfahrt, Entladen. Ohne Anfahrt ist $c_{t,r} = c_t$, die Gesamtlast fest und $H_{WB}$ die Zahlenpartitionierung auf $R$ Roboter.
+- Vorlast $L_{r,0}$ eines belegten Roboters: keine, pauschal ($t_{rest}$), **aus Status** (Rest des laufenden Auftrags aus Status, Position
+  und Lebenslauf, mit den gewählten Anteilen) oder **aus dem Log** (tatsächliche Restdauer, Rückschau, nur Arbeitszeit). Ohne Lebenslauf
+  im Log gilt pauschal. Die Batterie taugt nicht: Sie steht in beiden Läufen konstant auf 15 %.
+
+**Befunde zur Hardware** (Tabelle beim Kopplungsgraph, `workload.wb_sizes`, volle Zuständigkeit):
+
+- One-Hot: $T\cdot R$ Qubits, $T\binom{R}{2} + R\binom{T}{2}$ Kopplungen – so viele wie die IA mit Spaltenregel.
+- Domain Wall: $T(R-1)$ Qubits, $T(R-2) + \binom{T}{2}(3R-5)$ Kopplungen. Eine gebrochene Kette erzeugt $x = -1$ und zieht Last ab –
+  die Schranke für A wächst deshalb mit B.
+- Binary: Hilfsbits nur innerhalb eines Codes, je Code höchstens $2^K - K - 1$; $y\,y'$ hat Grad $2K$. Bei $R = 3$ ist der Graph
+  **vollständig** (T = 4: 12 Qubits, 66 Kopplungen; One-Hot 12 / 30, Domain Wall 8 / 28).
+- Die Varianz $\sum_r (L_r - \bar L)^2$ statt $\sum_r L_r^2$ koppelt über $(\sum L)^2$ jedes Paar von Variablen ($\binom{TR}{2}$).
+- Die Last-Terme wachsen mit $c^2$, und A muss mit B mitwachsen – der Dynamikbereich der Koeffizienten steigt.
+
+**Gewichte** (`workload.wb_default_weights`, Regler mit Empfehlung; A folgt live dem eingestellten B):
+
+- $B = 1/(2\bar c)$: Ein Auftrag auf einem Roboter, der schon einen gleich großen fährt, kostet um seine eigene Last mehr als auf einem leeren.
+- A = 1,1 × Schranke: One-Hot und Binary $\max_t \min_r \big(c_{t,r} + B(c_{t,r}^2 + 2c_{t,r}(L_{r,0} + \sum_{t' \ne t} c_{t',r}))\big)$ –
+  Liegenlassen bzw. ein gesperrter Code lohnt nie, selbst wenn alle anderen Aufträge auf demselben Roboter liegen. Domain Wall
+  $\max_t (s_t + B\max_r (2c_{t,r}L_r - c_{t,r}^2))$ für den Kettenbruch. Sicher, aber großzügig (Kurve „Wie groß muss A sein?“ in ④).
+- M = 1,1 × größter Gewinn eines lügenden Hilfsbits (wie in der IA).
+- Brute Force (31.10.2026, beide Läufe, 1 848 verschiedene Momente bis 14 Bits, je Kodierung B = 0, Empfehlung und dreifach, sechs
+  Varianten von Lastmaß, Anteilen und Vorlast): In allen 15 726 Fällen ist das QUBO-Minimum gültig und gleich dem besten Plan durch Aufzählen.
+  Die A-Empfehlung ist bei One-Hot 1,1- bis 3,1-mal so groß wie nötig (Median 1,6). Bei Domain Wall und Binary reicht oft ein sehr kleines A
+  (R = 2: keine Kettenregel; $R = 2^K$ ohne gesperrte Codes: keine ungültigen Codes).
+
+**Aufbau jeder Seite:** Schritte mit Erklärung · Szenario und Karte (Robotermenge R wie in der IA) · Brett der Kodierung mit Fußzeile
+„Last $L_r$“ · Energie je Term · **Last je Roboter** (Vorlast schraffiert, Aufträge blau, $x = -1$ rot; gestrichelt der beste Plan für B) ·
+**Was fließt in die Last ein?** · **Gesamtlast gegen Ausgleich** (alle gültigen Pläne, Pareto-Front, Gerade $H_{obj} + B\,\Sigma L^2$ = konst.) ·
+QUBO-Matrix, Kopplungsgraph und Größentabelle · normierte Matrix und Energielandschaft · Formel (① Formel · ② Eingesetzt ·
+③ Ausmultipliziert → QUBO · ④ Wirkung von B und A) · Rangliste. Gemeinsamer Code: `views/taWorkload.js`, Unterschiede der Kodierungen in
+`views/taWorkloadEncodings.js`, Formel in `views/taWorkloadFormula.js`, Lastbausteine in `components/workload.js`.
+
+Direktlink: `#/ta/one-hot?schritt=5&auftraege=6,7,8&roboter=61,62,63&modus=alle&last=zeit&anteile=anfahrt,beladen,lastfahrt,entladen&vorlast=status&zustand=minimum&formel=wirkung`
+(weiter `A`, `B`, `M`; `zustand` = `gierig` | `bester` | `minimum`).
+
+#### Archiv: die früheren TA-Seiten
+
+Sie rechnen mit Diagonal-Kriterien (feste $c_{t,r}$ ohne Spaltenregel) bzw. mit Positions-Hilfsvariablen und bleiben zum Nachschlagen.
+
+| Ansicht | Wofür |
+| --- | --- |
+| **One-Hot (diagonal)** | Geführter Weg in 5 Schritten an echten Aufträgen, siehe unten |
+| **One-Hot + Reihenfolge** | Ein Roboter fährt mehrere Aufträge: Platz-Hilfsvariablen, Ablaufplan, Hardware-Vergleich, siehe unten |
+| **Domain Wall (diagonal)** | Derselbe geführte Weg wie bei One-Hot, mit Ketten statt Schachbrett, siehe unten |
+| **Binary (diagonal)** | Derselbe Weg in 6 Schritten, mit Codes, Indikator-Produkten und – ab Grad 3 – Hilfsbits, siehe unten |
+| **Formel-Baukasten** | Die Formel selbst zusammensetzen: Kodierung je Auftrag frei wählbar (auch gemischt), Bausteine auf Zuweisungs- und Bit-Ebene, auch unsinnige – mit Energiebilanz und Diagnose gegen das echte Problem, siehe unten |
 
 **Keine Spaltenregel (TA, seit 26.10.2026):** Doppelbelegung ist zulässig – ein Roboter darf mehrere Aufträge übernehmen. Alle Kodierungen
 prüfen nur noch „jeder Auftrag genau ein Roboter“. Bei der Sofortzuweisung (K = 1) zählt jeder Auftrag dann, als startete sein Roboter sofort;
@@ -193,7 +256,7 @@ Danach erklärt die Karte **„Die Formel dahinter“**, wie die Mathematik wirk
 | ③ Ausmultipliziert → QUBO | Herleitung A(1−Σx)² = A − A·Σx + 2A·Σx_i x_j (weil x² = x); am gewählten Auftrag ausgeschrieben; welcher Teil wohin in die Matrix wandert; die fertige QUBO-Form mit Probe |
 | ④ Wirkung der Terme | Zeilenstrafe zerlegt in Konstante, Belohnung und Paarstrafe; Spaltenstrafe je Roboter; Kurven „ab welchem A bzw. B wird das Minimum gültig?“ (Klick setzt den Regler) |
 
-Direktlinks funktionieren auch, zum Beispiel `#/ta/one-hot?schritt=5&auftraege=1,2,3&kriterium=erledigungszeit&zustand=minimum&formel=eingesetzt`. Der Parameter `formel` nimmt die Werte `formel`, `eingesetzt`, `qubo` oder `wirkung` an, `kriterium` die Schlüssel aus `cost_model.CRITERIA`.
+Direktlinks funktionieren auch, zum Beispiel `#/ta/alt-one-hot?schritt=5&auftraege=1,2,3&kriterium=erledigungszeit&zustand=minimum&formel=eingesetzt`. Der Parameter `formel` nimmt die Werte `formel`, `eingesetzt`, `qubo` oder `wirkung` an, `kriterium` die Schlüssel aus `cost_model.CRITERIA`.
 
 Die Formulierung selbst kommt aus [`encodings/formulations.py`](../encodings/formulations.py), der Browser rechnet nur die Energien. Eine Vereinfachung fürs Lernen: Alle gewählten Aufträge sehen den Flottenzustand der ersten gewählten Anfrage.
 
@@ -223,7 +286,7 @@ Gleicher Aufbau wie One-Hot (5 Schritte: Szenario → Ketten → Kosten → Kett
 - **Strafgewicht:** A = 1,5 × größte Spannweite der Kosten – ein Kettenbruch spart höchstens die Spannweite. (Mit Spaltenregel brauchte es A = 2·B, weil δ = −1 die Spaltenregel zur Belohnung macht.)
 - **Hardware:** Vergleich mit One-Hot für dieselben Aufträge: Kopplungen T(R − 2) gegenüber T·R(R − 1)/2 – ohne Spaltenregel ist Domain Wall immer sparsamer. (Mit Spaltenregel kämen je konkurrierendem Auftragspaar 3R − 5 bzw. R dazu; dann wäre Domain Wall bei 4 Robotern nur bis 3 Aufträge sparsamer.)
 
-Direktlink: `#/ta/domain-wall?schritt=5&auftraege=1,2&kriterium=leerfahrt&reihenfolge=kosten&zustand=minimum&formel=wirkung`.
+Direktlink: `#/ta/alt-domain-wall?schritt=5&auftraege=1,2&kriterium=leerfahrt&reihenfolge=kosten&zustand=minimum&formel=wirkung`.
 
 #### Binary
 
@@ -313,9 +376,42 @@ Die URL enthält Szenario, Kodierung und Formel: `kodierung=binary` oder `kodier
 
 Ohne Spaltenregel koppeln die Aufträge bei K = 1 gar nicht – jede Kodierung zerfällt in einen Block je Auftrag, und Binary ist bei bis zu 4 Robotern am sparsamsten. Mit Reihenfolge (K = 2) koppeln Vorgänger-, Platz- und Lückenregel die Aufträge weiter: Dann braucht Binary so viele Qubits wie Domain Wall, die meisten Kopplungen und Koeffizienten, die um mehr als das 100-Fache größer sind (die Empfehlung für M ist eine sichere Schranke, bei mehr als 16 Nachbarn eines Hilfsbits grob). Brute-Force-Prüfung der empfohlenen Gewichte (beide Läufe, jede Kodierung und gemischt): mit festen Kosten (K = 1) und mit Reihenfolge (K = 2) immer der beste gültige Plan. Bei K = 1 mit Erledigungszeit wählt die QUBO in 13 von 46 Momenten eine Doppelbelegung, die gültig, aber nicht optimal ist – sie zählt den zweiten Auftrag, als startete er sofort (dafür gibt es K ≥ 2). Und ein Beispiel für „falsch kombiniert“: Die Zeilenregel (1 − Σδ)² auf einer Domain-Wall-Kette ist ausmultipliziert 1 − Anzahl Wände – sie *belohnt* jeden Kettenbruch mit 2 × A.
 
-### Reiter 4 · Hardware
+### Reiter 4 · Qubits & Kopplungen
 
-Als „bald“ markiert.
+Für **eine Instanz** (Aufträge und Roboter aus der Liste, wie auf den Kodierungsseiten) zwei Diagramme „Qubits gegen Kopplungen“: links die
+Sofortzuweisung (IA, Paarstrafe wie `formulations.*_ia`), rechts die TA mit Lastausgleich (`workload.wb_formulation`) – je ein Punkt für
+One-Hot, Domain Wall und Binary. Beide Diagramme haben dieselbe Skala; die gepunktete Linie ist der vollständig verbundene Graph C(n, 2).
+Darunter je eine Tabelle (Qubits, davon Hilfsbits, Kopplungen, Dichte, Ø Grad) und ein Satz zum Vergleich mit One-Hot.
+
+Gezählt wird die fertige QUBO (Binary mit Hilfsbits) mit allgemeinen Gewichten: Kopplung = Eintrag $Q_{ij} \neq 0$ mit $i \neq j$.
+Rechnung: [`encodings/resources.py`](../encodings/resources.py), `POST /api/runs/<run_id>/ressourcen` mit `"kurz": true`.
+Beispiel Lauf 22.10., #1–#4, R61–R63 (IA-Fall T > R): IA One-Hot 12 | 30, Domain Wall 9 | 27, Binary 9 | 36; TA One-Hot 12 | 30, Domain Wall 8 | 28, Binary 12 | 66.
+
+`resources.py` kann außerdem Varianten (IA mit Slack; TA mit Kapazität per Slack oder unbalanciert, Makespan), Skalierung, Fall-Landkarte und
+den Verlauf über einen Lauf rechnen (Endpunkte unten, getestet in `tests/test_resources.py`). Die Karten haben den Button
+*Trend over instance sizes* (Paper-Abbildung mit SVG-Download, Folge bis 18 Aufträge; feste y-Achsen – Qubits 0,8…500 und Kopplungen 0,8…10⁵ logarithmisch, Dichte 0…1,05 –, gleich für IA und TA und jede Reihe, `SIZE_YLIM` in `encodings/paper_figures.py`; Schalter *Largest mapped on hardware*: je Hardware eine Strich-Punkt-Linie für das größte abgebildete Problem – Qubits, Kopplungen, Dichte – aus `results/*.json`, Modell A für IA, B für TA) und den Modus *Nur Struktur* (T bis 18, R bis 9).
+
+Direktlink: `#/kopplungen/instanz?auftraege=1,2,3,4&roboter=61,62,63` (`modus=alle` für belegte Roboter).
+
+### Reiter 5 · Hardware
+
+Ab welcher Instanzgröße lässt sich jede Kodierung auf heutige Quantenhardware abbilden? Der Reiter **liest nur** die gespeicherten Ergebnisse
+`results/<hardware>.json` und rechnet nichts; erzeugt werden sie mit `python run_all.py --hardware advantage_pegasus` (Paket `hw/`, je Hardware ein
+Modul mit `map_<hardware>(bqm, seed)`; fehlende Läufe werden nachgeholt, gespeichert wird nach jedem Lauf). Instanzen: Model A = IA, Model B = TA,
+n = 4 … 18 Aufträge, Flotte m = n/2, jede Kodierung mit 10 Seeds; das Gitter steht einmal in `results/instances.json`.
+
+Die Ansicht zeigt die Abbildung im Paper-Stil (eine Spalte je Hardware mit Ergebnissen, Zeilen Model A und B, SVG-Download), die Grenze je
+Kodierung (größtes abgebildetes n, kleinstes nicht abgebildetes n), die Ergebnisse je Instanz und die Messbedingungen. Begriffe: *abgebildet* =
+gültige Einbettung gefunden (Ebene 1, nicht „lösbar“); *nicht abgebildet* = die Heuristik hat in allen Seeds im Zeitlimit nichts gefunden
+(kein Beweis); *Limit überschritten* = ein hartes Limit ist verletzt (sicher). Hardware (je ein Modul in `hw/`, Ergebnis `results/<name>.json`):
+Advantage (Pegasus P16, idealer Graph, obere Schranke), Advantage2 (Zephyr Z12 mit 4800 Qubits – das gelieferte System hat 4400+),
+Heron (FakeFez, 156 Qubits; alle Heron-Fakes haben dieselbe Kopplungskarte, die Gatterzahlen gelten für r2 wie r3), Nighthawk (FakeNighthawk,
+120 Qubits, 218 Koppler, nur Topologie) und Helios (98 Qubits, all-to-all, nur gezählt; das native ZZ-Gatter ist nicht offiziell belegt). Gatterbasierte Hardware:
+eine QAOA-Lage mit `optimization_level=3`, Messgröße Zwei-Qubit-Gatter; „abgebildet“ hängt dort nur an der Qubitzahl (hartes Limit). Quellen und
+Abrufdatum stehen in `meta.sources` der Ergebnisdatei und im Reiter unter *Messbedingungen*. Die Trend-Abbildung des Reiters 4 zeichnet je Hardware
+eine Referenzlinie (`hw.common.reach`); solange die Läufe einer Hardware unvollständig sind, steht „(partial)“ am Namen.
+
+Direktlink: `#/hardware/abbildung`.
 
 ## Aufbau
 
@@ -331,9 +427,9 @@ webapp/
         ├── main.js     ← Router (#/daten, #/ia, #/ta + Ansicht), Laufauswahl
         ├── theme.js    ← Farben, Beschriftungen, Plotly-Grundeinstellungen
         ├── util.js     ← DOM-, Zahlen- und Tooltip-Helfer
-        ├── components/ ← layoutMap.js (Fabrik-Karte), card.js (Karte + Tabellenansicht), scenario.js (Auftragsauswahl der Kodierungsseiten), iaScenario.js (Robotermenge und Fälle der IA-Seiten)
+        ├── components/ ← layoutMap.js (Fabrik-Karte), card.js (Karte + Tabellenansicht), scenario.js (Auftragsauswahl der Kodierungsseiten), iaScenario.js (Robotermenge und Fälle der IA-Seiten), workload.js (Pläne, Lastbalken, Pareto, Lastanteile der TA-Seiten)
         ├── qubo/       ← engine.js (Energie, alle Zustände per Gray-Code, Simulated Annealing), matrixView.js, graphView.js
-        └── views/      ← Daten: overview, replay, matrix, charts, compare · IA: iaOnehot (+ iaOnehotFormula), iaDomainWall (+ iaDomainWallFormula), iaBinary (+ iaBinaryFormula) · TA: onehot (+ onehotFormula, onehotCriterion), sequence (One-Hot + Reihenfolge)
+        └── views/      ← Daten: overview, replay, matrix, charts, compare · IA: iaOnehot (+ iaOnehotFormula), iaDomainWall (+ iaDomainWallFormula), iaBinary (+ iaBinaryFormula) · TA: taWorkload (+ taWorkloadEncodings, taWorkloadFormula) · Qubits & Kopplungen: couplings · Hardware: hardware · TA-Archiv: onehot (+ onehotFormula, onehotCriterion), sequence (One-Hot + Reihenfolge), domainwall, binary, baukasten
 ```
 
 **Datenfluss:** Der Browser holt einen Lauf einmal komplett als JSON (`GET /api/runs/<run_id>`, etwa 180 KB). Alle Filter, die Zeitreise und die Matrix rechnen danach im Browser. Die Zahlen stammen aus denselben Funktionen wie der PNG-Bericht, deshalb stimmen beide immer überein.
@@ -346,6 +442,15 @@ webapp/
 | `GET /api/runs/<run_id>/ia/binary?tasks=1,2,3&robots=61,62,63&kriterium=fahrstrecke` | Sofortzuweisung mit Binary: wie `/ia/one-hot`, aber Codes je Auftrag (T ≤ R) bzw. je Roboter (T > R), Polynom je Termart, Hilfsbits (nur innerhalb eines Codes), QUBO-Einträge mit symbolischen A, B, D (= M), Empfehlung A, B, M, Vergleich mit One-Hot und Domain Wall (dieser Moment und `sizes` für T = 1 … 6) |
 | `GET /api/runs/<run_id>/ia/domain-wall?tasks=1,2,3,4,5&robots=61,62&kriterium=fahrstrecke` | Sofortzuweisung mit Domain Wall: wie `/ia/one-hot`, aber Ketten je Auftrag (T ≤ R) bzw. je Roboter (T > R), `x_forms` (x je Variable als Differenz der Bits), Querregel, Empfehlung A = 3B, Vergleich mit One-Hot |
 | `GET /api/runs/<run_id>/ia/one-hot?tasks=1,2,3&robots=61,62&kriterium=fahrstrecke&variables=kandidaten&params={}` | Sofortzuweisung: Instanz mit Robotermenge R (leer = alle freien) und Fall, One-Hot mit Spaltenregel (Regeln, QUBO-Einträge mit symbolischen A, B, Konstante je Termart), Empfehlung A = B, bester gültiger Plan, Anzahl gültiger Pläne, für jedes IA-Kriterium Spanne und bester Plan |
+| `GET /api/runs/<run_id>/ta/one-hot?tasks=1,2,3,4&robots=61,62,63&last=zeit&anteile=anfahrt,lastfahrt&vorlast=status&variables=kandidaten&params={}` | TA mit Lastausgleich (auch `/ta/domain-wall`, `/ta/binary`): Instanz mit $c_{t,r}$ (Anteile) und Vorlast $L_{r,0}$ je Roboter, Formulierung (`x_polys` = x je Variable als Polynom der Bits, Polynom je Term, Hilfsbits, QUBO-Einträge mit symbolischen A, B, D = M), Empfehlung A, B, M samt Schranke `bound` (A als Funktion von B), Vergleich der drei Kodierungen, `sizes` für T = 1 … 6, Zahl der Pläne |
+| `POST /api/runs/<run_id>/ressourcen` mit `{"cases": [{"cls": "TA", "encoding": "binary", "variant": "kap_slack", "vparams": {"kap": 2}, "tasks": [1, 2, 3], "robots": [61, 62]} …]}` (oder `"struktur": true, "T": 4, "R": 3`) | Kennzahlen je Fall (Qubits nach Typ, Kopplungen nach Herkunft, Dichte, Grad, Präzision; ohne `"kurz": true` auch gültige Zustände und Brute-Force-Prüfung); fehlerhafte Fälle liefern `error` |
+| `POST /api/ressourcen/skalierung` mit `{"templates": [...], "axis": "T", "fixed": 3, "upto": 6}` | Kennzahlen je Vorlage über T bzw. R (nur Struktur, zwischengespeichert) |
+| `POST /api/ressourcen/groessen` mit `{"cls": "IA" \| "TA", "ratio": "halb" \| "fest" \| "quadrat", "R": 3, "schwarzweiss": true, "hardware_limits": true}` | Verlauf über gemischte Instanzgrößen T × R bis T = 18 (halb: R = T/2, fest: R bleibt, quadrat: T = R), nach T·R sortiert, nur Struktur: Qubits, Hilfsbits, Kopplungen, Dichte je Kodierung (ohne Prüfung) und `svg` – die Abbildung im Paper-Stil (matplotlib, englisch beschriftet, Legende unten) und `limits` (größtes je Hardware abgebildetes Problem, als Referenzlinien in der Abbildung) |
+| `GET /api/hardware` | Hardware-Abbildung je Hardware mit Ergebnissen: Metadaten, Fortschritt, Zeilen je Instanz, Grenze je (Modell, Kodierung) – nur aus `results/*.json` |
+| `GET /api/hardware/abbildung?hardware=advantage_pegasus&schwarzweiss=true` | `{"svg": …}`: Abbildung aus den gespeicherten Ergebnissen, eine Spalte je Hardware (leer = alle) |
+| `GET /api/ressourcen/landkarte?ia=paar&ta=wb` | Fall-Landkarte T × R = 1 … 6, alle Kodierungen für IA und TA |
+| `POST /api/runs/<run_id>/ressourcen/verlauf` mit `{"templates": [...], "schnitt": "fenster" \| "offen", "fenster": 60, "roboter": "frei" \| "alle"}` | je Anfrage T, R und die Kennzahlen je Vorlage |
+| `GET /api/ressourcen/katalog` | Klassen, Kodierungen, Varianten |
 | `GET /api/runs/<run_id>/reihenfolge?tasks=1,2,3&plaetze=2&kriterium=erledigungszeit&variables=kandidaten&params={}` | Instanz mit Anfahrten, Formulierung mit Platz-Hilfsvariablen (symbolische A, B, D), Standardgewichte, exaktes Optimum (mit und ohne Platzgrenze, Sofortzuweisung), Hilfsvariablen-Vergleich |
 | `GET /api/runs/<run_id>/domain-wall?tasks=1,2&kriterium=leerfahrt&reihenfolge=nummer&variables=kandidaten&params={}` | Lern-Instanz wie bei One-Hot, Domain-Wall-Formulierung (Ketten, Bits, Regeln, QUBO-Einträge mit symbolischen A, B, Konstante je Termart), Standardgewichte, beste gültige Zuweisung, One-Hot-Vergleich |
 | `GET /api/runs/<run_id>/binary?tasks=1,2&kriterium=leerfahrt&reihenfolge=nummer&variables=kandidaten&params={}` | Binary-Formulierung: Codes, Polynom je Termart (vor den Hilfsbits), Hilfsbits, QUBO-Einträge mit symbolischen A, B, D (= M), Standardgewichte, beste Zuweisung, Vergleich mit One-Hot und Domain Wall |
@@ -362,6 +467,9 @@ Die Tests prüfen unter anderem:
 
 - Die Website-Formulierung reproduziert die Zahlen des One-Hot-Kapitels.
 - Die Energie über die Regeln ist für jeden Zustand gleich der Energie über die QUBO-Matrix.
+- Hardware-Abbildung (`tests/test_hw_instances.py`): Gitterexport = Zählung aus `resources.py`, isolierte Knoten, Gültigkeitsprüfung der Einbettung, Reiter liest nur `results/` (leer ohne Ergebnisse).
+- Qubits & Kopplungen (`tests/test_resources.py`): Standardvarianten = Kodierungsseiten, Slack-Zahlen, unbalanciert mit K = 1 = Paarstrafe, gültige Zustände = Abzählen, Minimum gültig und optimal (IA, Lastausgleich, Kapazität, Makespan), Verlauf, Landkarte.
+- TA mit Lastausgleich (`tests/test_ta_workload.py`): QUBO = Regeln in allen drei Kodierungen, Kopplungszahlen, Ausmultiplizieren von $H_{WB}$, Vorlast-Arten, und per Brute Force an echten Momenten ist das Minimum mit den empfohlenen Gewichten (B = 0, Empfehlung, dreifach) gültig und gleich dem besten Plan.
 - Mit Reihenfolge ist die QUBO-Energie jedes gültigen Plans genau die Summe aus dem Ablaufplan, und das QUBO-Minimum ist das exakte Optimum.
 - Die Voreinstellung „standard“ des Baukastens ergibt exakt die festen Formulierungen (One-Hot, Reihenfolge, Domain Wall, Binary mit denselben Hilfsbits). Für beliebige, auch unsinnige Bausteine auf gemischten Kodierungen stimmt das Ausmultiplizieren, und die empfohlenen Gewichte liefern in jeder Kodierung den besten Plan.
 

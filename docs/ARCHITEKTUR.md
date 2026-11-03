@@ -72,8 +72,9 @@ Jede Stufe hat zwei Gesichter, die auf **denselben Python-Funktionen** aufbauen:
 | --- | --- | --- |
 | Zweck | reproduzierbare Ergebnisse, Abbildungen fürs Paper | intuitiv erkunden und verstehen |
 | Stufe 1 | `analysis/analysis.py` → PNG-Bericht | Reiter **1 · Daten** ([webapp/](../webapp/README.md)) |
-| Kodierungen | `encodings/` (Lesekapitel), `encodings/formulations.py`, `encodings/baukasten.py` | Reiter **2 · Kodierungen IA** (Sofortzuweisung): One-Hot, Domain Wall und Binary (mit Hilfsbits) in den Fällen T = R, T < R, T > R ✅ · Reiter **3 · Kodierungen TA** (mit Reihenfolge): One-Hot ✅, One-Hot + Reihenfolge ✅, Domain Wall ✅, Binary ✅, Formel-Baukasten für alle Kodierungen ✅ |
-| Hardware | – | Reiter **4 · Hardware** (geplant) |
+| Kodierungen | `encodings/` (Lesekapitel), `encodings/formulations.py`, `encodings/baukasten.py` | Reiter **2 · Kodierungen IA** (Sofortzuweisung): One-Hot, Domain Wall und Binary (mit Hilfsbits) in den Fällen T = R, T < R, T > R ✅ · Reiter **3 · Kodierungen TA** (mit Reihenfolge, Ziel Lastausgleich, `encodings/workload.py`): One-Hot ✅, Domain Wall ✅, Binary ✅ · Archiv: One-Hot + Reihenfolge ✅, Diagonal-Seiten ✅, Formel-Baukasten ✅ |
+| Qubits & Kopplungen | `encodings/resources.py` | Reiter **4 · Qubits & Kopplungen**: für eine Instanz Qubits gegen Kopplungen je Kodierung, IA und TA nebeneinander ✅ |
+| Hardware-Abbildung | `hw/`, `run_all.py` | Reiter **5 · Hardware**: Einbettung/Routing der QUBOs auf D-Wave, IBM, Quantinuum; Schritt 1 (Pegasus) ✅, weitere folgen – Reiter liest nur `results/*.json` |
 
 Die Website rechnet nichts Eigenes am Ursprungsproblem. Ihre Datenschicht (`webapp/data_service.py`) ruft `analysis/` auf, deshalb zeigen Bericht und Website immer dieselben Zahlen. Neue Berechnungen gehören zuerst in die Python-Module; die Website stellt sie dar.
 
@@ -97,6 +98,7 @@ Diese Fragen sollten vor Stufe 2 auf Basis der Stufe-1-Ergebnisse geklärt werde
 - **Problemklasse:** Zwei Klassen sind umgesetzt.
   - **Sofortzuweisung** (`one_hot`, Gerkey & Matarić: IA): jeder Roboter höchstens ein Auftrag.
   - **Zuweisung mit Reihenfolge** (`one_hot_sequence`, TA): mehrere Aufträge nacheinander, mit Positions-Hilfsvariablen $x_{t,r,q}$.
+  - **Zuweisung mit Reihenfolge, Ziel Lastausgleich** (`workload.wb_formulation`, TA): $H = H_{obj} + A\,H_{pen} + B\sum_r (L_{r,0} + \sum_t c_{t,r} x_{t,r})^2$ in One-Hot, Domain Wall und Binary – ohne Positionen, weil die Last nicht von der Reihenfolge abhängt.
 
   Welche Klasse zu einem Instanzschnitt passt, hängt davon ab, wie viele Aufträge je Entscheidung anfallen. Bei mehr Aufträgen als freien Robotern ist die Sofortzuweisung nicht lösbar.
 - **Kostenfunktion / Bewertungskriterium:** Teilweise beantwortet durch [`encodings/cost_model.py`](../encodings/cost_model.py).

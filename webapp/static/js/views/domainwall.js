@@ -84,7 +84,7 @@ export function renderDomainWall(root, { run, api, params }) {
 
   root.append(el('p', {
     class: 'intro',
-    html: `Dieselbe Aufgabe wie bei <a href="#/ta/one-hot">One-Hot</a>, anders in Bits: je Auftrag eine <b>Kette</b> aus <i>R</i> − 1 Bits
+    html: `Dieselbe Aufgabe wie bei <a href="#/ta/alt-one-hot">One-Hot</a>, anders in Bits: je Auftrag eine <b>Kette</b> aus <i>R</i> − 1 Bits
       wie ein Thermometer; die <b>Wand</b> (1 → 0) zeigt den gewählten Roboter. Lesekapitel: <code>encodings/domain_wall/README.md</code>.`,
   }));
   root.append(el('section', { class: 'card guide' }, stepper,
@@ -418,7 +418,7 @@ export function renderDomainWall(root, { run, api, params }) {
         : null,
 el('a', { class: 'btn small', href: `#/ta/baukasten?auftraege=${st.selected.join(',')}&plaetze=1&kriterium=${st.criterion}${st.mode === 'alle' ? '&modus=alle' : ''}&kodierung=domain_wall${st.order === 'kosten' ? '&reihenfolge=kosten' : ''}`,
         title: 'Dieselben Aufträge im Formel-Baukasten: Bausteine verändern, Kodierungen mischen, falsch machen' }, 'Formel verändern → Baukasten'),
-      el('a', { class: 'btn small', href: `#/ta/one-hot?auftraege=${st.selected.join(',')}&kriterium=${st.criterion}&schritt=${st.step}`,
+      el('a', { class: 'btn small', href: `#/ta/alt-one-hot?auftraege=${st.selected.join(',')}&kriterium=${st.criterion}&schritt=${st.step}`,
         title: 'Dieselben Aufträge mit One-Hot' }, 'Vergleich: One-Hot →'));
   }
 

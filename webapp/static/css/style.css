@@ -94,6 +94,9 @@ select, input[type="number"] {
 .card-sub { color: var(--ink-2); font-size: 0.88rem; margin-top: 2px; }
 .card-body { min-width: 0; }
 .chart { width: 100%; min-height: 360px; }
+/* Abbildung im Paper-Stil (SVG vom Server): bleibt weiß wie im Druck, auch im dunklen Theme */
+.paper-fig { background: #fff; border: 1px solid var(--line, #d9d9d9); border-radius: 6px; padding: 6px; min-height: 120px; }
+.paper-fig .hint { color: #555; }
 .chart.short { min-height: 260px; }
 .chart.land-norm { height: 470px; }
 .chart.land-3d { height: 500px; }
@@ -222,6 +225,7 @@ table.data tr.dim td { color: var(--muted); }
 
 /* ---------------------------------------------------------------- Kodierungen: geführter Weg */
 .subtab.disabled { color: var(--muted); cursor: not-allowed; }
+.subtab-sep { align-self: center; margin: 0 2px 0 14px; padding-left: 12px; border-left: 1px solid var(--axis); color: var(--muted); font-size: 0.8rem; }
 .subtab.disabled em { font-style: normal; font-size: 0.72rem; padding: 0 6px; margin-left: 4px; border-radius: 99px; background: var(--neutral); }
 .guide { padding-bottom: 14px; }
 .stepper { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -331,9 +335,14 @@ td.sum.bad { color: #9a1f1f; background: #fbe6e6; }
 .t-kosten { border-color: #2a78d6; }
 .t-zeile { border-color: #eb6834; }
 .t-spalte { border-color: #4a3aa7; }
+.t-last { border-color: #4a3aa7; }
+.t-kette, .t-ungueltig { border-color: #eb6834; }
+.t-hilfsbit { border-color: #1baf7a; }
 .t-kosten .fx-term, .t-kosten .t-name { color: #1c5cab; }
 .t-zeile .fx-term, .t-zeile .t-name { color: #b5481c; }
-.t-spalte .fx-term, .t-spalte .t-name { color: #4a3aa7; }
+.t-spalte .fx-term, .t-spalte .t-name, .t-last .fx-term, .t-last .t-name { color: #4a3aa7; }
+.t-kette .fx-term, .t-kette .t-name, .t-ungueltig .fx-term, .t-ungueltig .t-name { color: #b5481c; }
+.t-hilfsbit .fx-term, .t-hilfsbit .t-name { color: #127a55; }
 .off { opacity: 0.45; }
 table.symbols td:first-child { font-family: "Cambria Math", "Times New Roman", serif; font-size: 1.05rem; }
 table.symbols td, table.fx-table td { white-space: normal; }
@@ -341,7 +350,9 @@ table.fx-table tr.t-row td:first-child { border-left: 4px solid; border-left-col
 table.fx-table tr.t-row { border-color: inherit; }
 table.fx-table tr.t-kosten td:first-child { border-left-color: #2a78d6; }
 table.fx-table tr.t-zeile td:first-child { border-left-color: #eb6834; }
-table.fx-table tr.t-spalte td:first-child { border-left-color: #4a3aa7; }
+table.fx-table tr.t-spalte td:first-child, table.fx-table tr.t-last td:first-child { border-left-color: #4a3aa7; }
+table.fx-table tr.t-kette td:first-child, table.fx-table tr.t-ungueltig td:first-child { border-left-color: #eb6834; }
+table.fx-table tr.t-hilfsbit td:first-child { border-left-color: #1baf7a; }
 table.fx-table tr.t-row:hover td { background: var(--neutral); }
 .fx-cell { font-family: "Cambria Math", "Times New Roman", serif; font-size: 1rem; line-height: 1.7; }
 .fx-cell sub, .fx-qubo sub, .fx-derivation sub, .fx-list sub { font-size: 0.72em; }
@@ -546,3 +557,22 @@ tr.enc-req td { background: #f4f3ef; }
 .w-label { font-size: 0.88rem; font-weight: 600; }
 .w-input { width: 100px; }
 .w-hint { font-size: 0.78rem; }
+
+/* ---------------------------------------------------------------- Lastverteilung (TA, Workload Balancing) */
+.wl-rows { display: grid; gap: 8px; }
+.wl-row { display: grid; grid-template-columns: 92px minmax(0, 1fr) 160px; gap: 10px; align-items: center; }
+.wl-name { font-weight: 700; white-space: nowrap; }
+.wl-track { position: relative; height: 26px; border-radius: 6px; background: var(--neutral); overflow: hidden; }
+.wl-seg { position: absolute; top: 0; bottom: 0; display: flex; align-items: center; justify-content: center; overflow: hidden;
+  font-size: 0.74rem; color: #fff; border-right: 2px solid var(--surface); white-space: nowrap; }
+.wl-seg.pre { background: repeating-linear-gradient(135deg, #b9b8ae 0 6px, #cfcec6 6px 12px); color: var(--ink); }
+.wl-seg.task { background: var(--series); }
+.wl-seg.neg { background: #fbe6e6; color: #9a1f1f; border: 1px dashed var(--bad); }
+.wl-mark { position: absolute; top: 0; bottom: 0; width: 0; border-left: 2px dashed var(--accent); }
+.wl-val { font-variant-numeric: tabular-nums; font-size: 0.86rem; }
+.wl-val strong { font-size: 0.95rem; }
+.wl-sum { display: flex; flex-wrap: wrap; gap: 4px 18px; margin-top: 10px; font-size: 0.88rem; color: var(--ink-2); }
+.wl-setup { display: grid; gap: 10px; }
+.wl-setup .chip small { color: var(--muted); }
+.wl-ctable td.num { white-space: nowrap; }
+@media (max-width: 640px) { .wl-row { grid-template-columns: 70px minmax(0, 1fr); } .wl-val { grid-column: 2; } }

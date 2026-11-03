@@ -18,6 +18,8 @@ import pandas as pd
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "analysis"))
 sys.path.insert(0, str(ROOT / "encodings"))
+if str(ROOT) not in sys.path:
+    sys.path.append(str(ROOT))  # hw/ (Hardware-Abbildung)
 
 from checks import run_checks  # noqa: E402
 from features import WINDOW_SIZES, run_summary, task_features, task_robot_matrix  # noqa: E402
@@ -31,6 +33,9 @@ from formulations import (  # noqa: E402
     one_hot_sequence,
 )
 import baukasten  # noqa: E402
+import workload  # noqa: E402
+import paper_figures  # noqa: E402
+import resources  # noqa: E402
 from loader import PATH_SENTINEL_THRESHOLD, find_runs, load_run  # noqa: E402
 
 DEFAULT_DATA_DIR = ROOT / "data" / "transport_logs"
@@ -147,6 +152,81 @@ class DataService:
                 "compare": {"one_hot": {"n": oh["n"], "couplings": couplings(oh)},
                             "domain_wall": {"n": dw["n"], "couplings": couplings(dw)}},
                 "sizes": ia_sizes(len(instance["robots"]))}
+
+    def ta_workload(self, run_id: str, encoding: str, task_ids: list[int], robot_ids: list[int] | None = None,
+                    variables: str = "kandidaten", measure: str = "zeit", parts: list[str] | None = None,
+                    vorlast: str = "status", params: dict | None = None) -> dict:
+        """TA mit Lastverteilung (H = H_obj + A·H_pen + B·H_WB): Instanz mit Lasten c_tr und Vorlast L_r,0, Formulierung
+        der Kodierung, Gewichtsempfehlung (A als Funktion von B), Vergleich der drei Kodierungen und Größen für T = 1 … 6."""
+        p = self.payload(run_id)
+        instance = workload.build_wb_instance(p["tasks"], p["fleet"], task_ids, robot_ids, variables, measure, parts, vorlast,
+                                              params)
+        forms = {enc: workload.wb_formulation(instance, enc) for enc in workload.ENCODINGS}
+        form = forms[encoding]
+        n_plans = 1
+        for t in instance["tasks"]:
+            n_plans *= sum(1 for v in instance["variables"] if v["task_id"] == t["transport_id"])
+        return {
+            "run_id": run_id,
+            "instance": instance,
+            "formulation": form,
+            "weights": workload.wb_default_weights(instance, form),
+            "compare": {enc: {"n": f["n"], "couplings": couplings(f), "aux": len(f["aux"])} for enc, f in forms.items()},
+            "sizes": workload.wb_sizes(len(instance["robots"])),
+            "n_plans": n_plans,
+            "catalog": {"measures": list(workload.WB_MEASURES.values()), "parts": workload.WB_PARTS,
+                        "vorlast": list(workload.VORLAST_MODES.values()),
+                        "params": {k: PARAMS[k] for k in workload.WB_PARAM_KEYS}},
+        }
+
+    def resources(self, run_id: str, cases: list[dict]) -> list[dict]:
+        """Reiter Ressourcen: je Fall (Klasse, Kodierung, Variante, Szenario) die Kennzahlen K1–K6 und die Prüfung des Minimums.
+        Ein fehlerhafter Fall liefert {"error": …} und blockiert die anderen nicht."""
+        payload = self.payload(run_id)
+        out = []
+        for spec in cases:
+            try:
+                out.append(resources.evaluate(payload, spec))
+            except ValueError as exc:
+                out.append({"error": str(exc)})
+        return out
+
+    def hardware(self) -> dict:
+        """Reiter Hardware: Ergebnisse der Hardware-Abbildung (results/<hardware>.json) – nur gelesen, nichts neu gerechnet."""
+        from hw import common, make_figures  # erst hier: dimod und matplotlib braucht nur dieser Reiter
+        return {"hardware": [{**common.overview(h, make_figures.METRIC[h][0]), "title": make_figures.TITLES[h],
+                              "metric": {"field": make_figures.METRIC[h][0], "label": make_figures.METRIC[h][1]}}
+                             for h in make_figures.available()],
+                "orders": list(common.ORDERS), "fleet": "m = n/2"}
+
+    def hardware_figure(self, names: list[str], grayscale: bool) -> dict:
+        """Abbildung (SVG) aus den gespeicherten Ergebnissen, eine Spalte je gewählter Hardware."""
+        from hw import make_figures
+        return {"svg": make_figures.render(names or make_figures.available(), "svg", grayscale).decode("utf-8")}
+
+    def resources_sizes(self, cls: str, ratio: str, R: int, grayscale: bool, hardware_limits: bool = True) -> dict:
+        """Verlauf über gemischte Instanzgrößen T × R (nur Struktur): Daten und die Abbildung als SVG.
+
+        hardware_limits: das größte auf jeder Hardware abgebildete Problem (Modell A für IA, B für TA, aus results/*.json) als
+        Strich-Punkt-Linie in jedem Feld – gibt es noch keine Ergebnisse, bleibt die Abbildung wie ohne."""
+        if cls not in resources.CLASSES:
+            raise ValueError(f"Klasse muss eine von {resources.CLASSES} sein")
+        data = resources.size_series(cls, "paar" if cls == "IA" else "wb", ratio, R)
+        refs = self._hardware_limits("A" if cls == "IA" else "B") if hardware_limits else []
+        return {**data, "limits": refs, "svg": paper_figures.render_sizes(data, R, grayscale, "svg", refs).decode("utf-8")}
+
+    def _hardware_limits(self, model: str) -> list[dict]:
+        from hw import common, make_figures  # erst hier: dimod braucht nur die Hardware-Reiter
+        out = []
+        for h in make_figures.available():
+            r = common.reach(h, model)
+            if r:
+                out.append({"label": make_figures.SHORT[h] + ("" if r["complete"] else " (partial)"), "hardware": h, **r})
+        return out
+
+    def resources_timeline(self, run_id: str, templates: list[dict], cut: str, window: float, robots: str) -> dict:
+        """Verlauf über einen Lauf: echte Instanzgrößen je Anfrage und die Kennzahlen jeder Vorlage."""
+        return resources.timeline(self.payload(run_id), templates, cut, window, robots)
 
     def _ia_common(self, run_id: str, task_ids: list[int], robot_ids: list[int] | None, variables: str, criterion: str,
                    params: dict | None) -> tuple[dict, dict]:

@@ -27,7 +27,7 @@ Das Gesamtkonzept steht in [docs/ARCHITEKTUR.md](docs/ARCHITEKTUR.md).
 
 Dazu kommen zwei Wege zum Lernen und Erkunden:
 
-- **[Lernlabor (Website)](webapp/README.md):** eine lokale Website, auf der die Pipeline Schritt für Schritt interaktiv aufgebaut wird. Reiter 1 · Daten ✅, Reiter 2 · Kodierungen IA (Sofortzuweisung, drei Fälle T : R) mit One-Hot, Domain Wall und Binary ✅, Reiter 3 · Kodierungen TA (mit Reihenfolge) mit One-Hot, Reihenfolge, Domain Wall, Binary und Formel-Baukasten ✅, Reiter 4 · Hardware folgt.
+- **[Lernlabor (Website)](webapp/README.md):** eine lokale Website, auf der die Pipeline Schritt für Schritt interaktiv aufgebaut wird. Reiter 1 · Daten ✅, Reiter 2 · Kodierungen IA (Sofortzuweisung, drei Fälle T : R) mit One-Hot, Domain Wall und Binary ✅, Reiter 3 · Kodierungen TA (mit Reihenfolge, Ziel Lastausgleich) mit One-Hot, Domain Wall und Binary ✅ – die früheren TA-Seiten (Reihenfolge, Baukasten …) im Archiv, Reiter 4 · Qubits & Kopplungen (eine Instanz, IA und TA je Kodierung) ✅, Hardware-Mapping folgt später.
 - **[Kodierungen bildlich erklärt](encodings/README.md):** One-Hot, Domain Wall und Binary als Lesekapitel mit nachgerechneten Abbildungen.
 
 ## Schnellstart (PowerShell, aus dem Projektordner)

@@ -15,6 +15,9 @@ import { renderSequence } from './views/sequence.js';
 import { renderBaukasten } from './views/baukasten.js';
 import { renderDomainWall } from './views/domainwall.js';
 import { renderBinary } from './views/binary.js';
+import { renderTaBinary, renderTaDomainWall, renderTaOneHot } from './views/taWorkload.js';
+import { renderCouplings } from './views/couplings.js';
+import { renderHardware } from './views/hardware.js';
 
 const TABS = {
   daten: [
@@ -29,16 +32,29 @@ const TABS = {
     { key: 'domain-wall', label: 'Domain Wall', render: renderIaDomainWall },
     { key: 'binary', label: 'Binary', render: renderIaBinary },
   ],
+  // TA mit Lastausgleich (Workload Balancing) – kommt ohne Positionen und Zeitraster aus. Die früheren Seiten (Diagonal-
+  // Kriterien ohne Spaltenregel, Positions-Hilfsvariablen, Baukasten) stehen dahinter unter „Archiv“.
   ta: [
-    { key: 'one-hot', label: 'One-Hot', render: renderOneHot },
-    { key: 'reihenfolge', label: 'One-Hot + Reihenfolge', render: renderSequence },
-    { key: 'domain-wall', label: 'Domain Wall', render: renderDomainWall },
-    { key: 'binary', label: 'Binary', render: renderBinary },
-    { key: 'baukasten', label: 'Formel-Baukasten', render: renderBaukasten },
+    { key: 'one-hot', label: 'One-Hot', render: renderTaOneHot },
+    { key: 'domain-wall', label: 'Domain Wall', render: renderTaDomainWall },
+    { key: 'binary', label: 'Binary', render: renderTaBinary },
+    { key: 'alt-one-hot', label: 'One-Hot (diagonal)', render: renderOneHot, group: 'Archiv' },
+    { key: 'reihenfolge', label: 'One-Hot + Reihenfolge', render: renderSequence, group: 'Archiv' },
+    { key: 'alt-domain-wall', label: 'Domain Wall (diagonal)', render: renderDomainWall, group: 'Archiv' },
+    { key: 'alt-binary', label: 'Binary (diagonal)', render: renderBinary, group: 'Archiv' },
+    { key: 'baukasten', label: 'Formel-Baukasten', render: renderBaukasten, group: 'Archiv' },
+  ],
+  // Qubits gegen Kopplungen je Kodierung für eine Instanz – IA und TA nebeneinander
+  kopplungen: [
+    { key: 'instanz', label: 'Eine Instanz: IA und TA', render: renderCouplings },
+  ],
+  // Hardware-Abbildung: gespeicherte Ergebnisse von run_all.py (results/*.json), nichts wird hier gerechnet
+  hardware: [
+    { key: 'abbildung', label: 'Hardware-Abbildung', render: renderHardware },
   ],
 };
 // Alte Links (vor der Trennung IA/TA) zeigen auf die Seiten der Zuweisung mit Reihenfolge
-const TAB_ALIASES = { kodierungen: 'ta' };
+const TAB_ALIASES = { kodierungen: 'ta', ressourcen: 'kopplungen' };
 
 const state = { runs: [], runId: null, dataDir: '', cleanup: null, cache: new Map() };
 const viewEl = () => document.getElementById('view');
@@ -75,9 +91,12 @@ function currentRoute() {
 async function route() {
   const { tab, view, params } = currentRoute();
   document.querySelectorAll('.tab[data-tab]').forEach((a) => a.classList.toggle('active', a.dataset.tab === tab));
-  document.getElementById('subtabs').replaceChildren(...TABS[tab].map((v) => (v.soon
-    ? el('span', { class: 'subtab disabled', title: 'Kommt in einem späteren Schritt' }, v.label, el('em', {}, 'bald'))
-    : el('a', { class: `subtab${v === view ? ' active' : ''}`, href: `#/${tab}/${v.key}`, 'aria-current': v === view ? 'page' : null }, v.label))));
+  document.getElementById('subtabs').replaceChildren(...TABS[tab].flatMap((v, k, all) => [
+    v.group && v.group !== all[k - 1]?.group ? el('span', { class: 'subtab-sep' }, `${v.group}:`) : null,
+    v.soon
+      ? el('span', { class: 'subtab disabled', title: 'Kommt in einem späteren Schritt' }, v.label, el('em', {}, 'bald'))
+      : el('a', { class: `subtab${v === view ? ' active' : ''}`, href: `#/${tab}/${v.key}`, 'aria-current': v === view ? 'page' : null }, v.label),
+  ].filter(Boolean)));
 
   if (state.cleanup) {
     state.cleanup();

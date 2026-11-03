@@ -598,27 +598,45 @@ def _quadratize_groups(work: dict, group: dict) -> list[dict]:
     def same(pr: tuple[int, int]) -> bool:
         return group[pr[0]] is not None and group[pr[0]] == group[pr[1]]
 
+    # Paar → Terme (Art, Monom) vom Grad > 2, die es enthalten; wird beim Ersetzen mitgeführt statt jede Runde neu gezählt
+    index: dict[tuple[int, int], set[tuple[object, frozenset]]] = {}
+
+    def register(kind, m: frozenset) -> None:
+        for pair in combinations(sorted(m), 2):
+            index.setdefault(pair, set()).add((kind, m))
+
+    def unregister(kind, m: frozenset) -> None:
+        for pair in combinations(sorted(m), 2):
+            hits = index[pair]
+            hits.discard((kind, m))
+            if not hits:
+                del index[pair]
+
+    for kind, p in work.items():
+        for m in p:
+            if len(m) > 2:
+                register(kind, m)
     while True:
-        counts: dict[tuple[int, int], int] = {}
-        for p in work.values():
-            for m in p:
-                if len(m) > 2:
-                    for pair in combinations(sorted(m), 2):
-                        counts[pair] = counts.get(pair, 0) + 1
-        if not counts:
+        if not index:
             return aux
-        x, y = min([pr for pr in counts if same(pr)] or counts, key=lambda pr: (-counts[pr], pr))
+        x, y = min([pr for pr in index if same(pr)] or index, key=lambda pr: (-len(index[pr]), pr))
         a = len(group)
         group[a] = group[x] if same((x, y)) else None
         covers[a] = tuple(sorted(covers[x] + covers[y]))
-        aux.append({"index": a, "pair": [x, y], "replaced": counts[(x, y)], "covers": list(covers[a]), "group": group[a]})
-        for kind, p in work.items():
+        aux.append({"index": a, "pair": [x, y], "replaced": len(index[(x, y)]), "covers": list(covers[a]), "group": group[a]})
+        hit: dict[object, set[frozenset]] = {}
+        for kind, m in index[(x, y)]:
+            hit.setdefault(kind, set()).add(m)
+        for kind, ms in hit.items():
+            for m in ms:
+                unregister(kind, m)
             new: dict[frozenset, dict] = {}
-            for m, e in p.items():
-                m2 = (m - {x, y}) | {a} if len(m) > 2 and x in m and y in m else m
-                acc = new.setdefault(m2, {k: 0.0 for k in e})
-                for k in acc:
-                    acc[k] += e[k]
+            for m, e in work[kind].items():  # Reihenfolge bleibt erhalten; das neue Monom enthält a und kollidiert mit keinem alten
+                if m in ms:
+                    m = (m - {x, y}) | {a}
+                    if len(m) > 2:
+                        register(kind, m)
+                new[m] = e
             work[kind] = new
 
 

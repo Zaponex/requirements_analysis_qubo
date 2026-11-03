@@ -77,7 +77,7 @@ export function renderSequence(root, { run, api, params }) {
 
   root.append(el('p', {
     class: 'intro',
-    html: `Bei <a href="#/ta/one-hot">One-Hot</a> fährt jeder Roboter <b>höchstens einen</b> Auftrag, hier <b>mehrere nacheinander</b>.
+    html: `Bei <a href="#/ta/alt-one-hot">One-Hot</a> fährt jeder Roboter <b>höchstens einen</b> Auftrag, hier <b>mehrere nacheinander</b>.
       Die Erledigungszeit ist dann keine feste Zahl je Auftrag und Roboter – die QUBO braucht <b>Hilfsvariablen</b> für den Platz.
       Herleitung: <code>encodings/reihenfolge/README.md</code>.`,
   }));
